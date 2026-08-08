@@ -26,9 +26,11 @@ target_link_libraries(lvgl PUBLIC SDL2::SDL2)
 add_executable(frolic_sim
     sim/main.c
     sim/fake_step_source.c
+    sim/screenshot.c
     app/frolic_app.c
     app/watchface.c
     app/pet.c
+    app/sprites/raichu_sprites.c
 )
 target_include_directories(frolic_sim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(frolic_sim PRIVATE lvgl SDL2::SDL2)

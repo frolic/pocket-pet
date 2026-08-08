@@ -13,6 +13,12 @@
 /* Homebrew's SDL2 include dir already points inside SDL2/. */
 #define LV_SDL_INCLUDE_PATH <SDL.h>
 
+/* Screen-to-buffer capture for the sim's FROLIC_SHOT screenshot hook. */
+#define LV_USE_SNAPSHOT 1
+
+/* Default 64KB can't hold a full-screen snapshot buffer (410*502*4 ≈ 823KB). */
+#define LV_MEM_SIZE (4 * 1024 * 1024)
+
 /* Fonts used by the watchface (default 14pt is also enabled). */
 #define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_MONTSERRAT_44 1
