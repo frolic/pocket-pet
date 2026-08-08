@@ -20,13 +20,21 @@
 /* Turn-in-place cadence: one 45-degree facing step per beat. */
 #define TURN_STEP_MS 120
 #define FACING_SOUTH 0
+#define FACING_NORTH 4
 
+/*
+ * The Sit artwork is single-row and faces away from the camera, so sitting
+ * means facing north: he turns to north before sitting down, and after
+ * standing up he is facing north and turns from there — no snapping.
+ */
 typedef enum {
     PET_STATE_WANDER,
     PET_STATE_TURN_SOUTH,
     PET_STATE_IDLE,
-    PET_STATE_SIT_BREAK,
-    PET_STATE_SITTING,
+    PET_STATE_TURN_NORTH,
+    PET_STATE_SIT_DOWN,
+    PET_STATE_SEATED,
+    PET_STATE_STAND_UP,
 } pet_state_t;
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
@@ -68,7 +76,8 @@ static float pos_x, pos_y = 30.0f;
 static float target_x, target_y;
 static int32_t pause_left_ms;
 static uint32_t turn_accum_ms;
-static int sit_break_direction; /* +1 sitting down, 0 seated hold, -1 standing up */
+static bool seated_permanent;   /* long-quiet sit vs a brief idle sit-break */
+static bool stand_up_to_wander; /* steps arrived while seated — walk after standing */
 
 static void show_frame(void)
 {
@@ -213,16 +222,17 @@ static void advance_frame(lv_timer_t *timer)
         return;
     case PET_STATE_IDLE:
         if (lv_tick_elaps(last_step_tick) > WALK_LINGER_MS + SIT_AFTER_MS) {
-            state = PET_STATE_SITTING;
-            set_anim(&sit_set);
+            seated_permanent = true;
+            state = PET_STATE_TURN_NORTH;
+            lv_timer_set_period(frame_timer, TURN_STEP_MS);
             return;
         }
         if (frame_index == 0) {
             /* A rest hold just ended: usually bounce, sometimes sit a moment. */
             if (rand() % 100 < SIT_BREAK_CHANCE_PCT) {
-                state = PET_STATE_SIT_BREAK;
-                sit_break_direction = 1;
-                set_anim(&sit_set);
+                seated_permanent = false;
+                state = PET_STATE_TURN_NORTH;
+                lv_timer_set_period(frame_timer, TURN_STEP_MS);
                 return;
             }
             frame_index = 1;
@@ -236,29 +246,47 @@ static void advance_frame(lv_timer_t *timer)
                 (uint32_t)(IDLE_REST_MIN_MS + rand() % (IDLE_REST_MAX_MS - IDLE_REST_MIN_MS)));
         }
         return;
-    case PET_STATE_SIT_BREAK:
-        if (sit_break_direction > 0) {
-            if (frame_index < current_set->count - 1) {
-                frame_index++;
-                show_frame();
-            } else {
-                sit_break_direction = 0;
-                lv_timer_set_period(frame_timer,
-                    (uint32_t)(SEATED_HOLD_MIN_MS + rand() % (SEATED_HOLD_MAX_MS - SEATED_HOLD_MIN_MS)));
-            }
-        } else if (frame_index > 0) {
-            sit_break_direction = -1;
-            frame_index--;
+    case PET_STATE_TURN_NORTH:
+        if (facing == FACING_NORTH) {
+            state = PET_STATE_SIT_DOWN;
+            set_anim(&sit_set);
+            return;
+        }
+        face_step_toward(FACING_NORTH);
+        lv_timer_set_period(frame_timer, TURN_STEP_MS);
+        return;
+    case PET_STATE_SIT_DOWN:
+        if (frame_index < current_set->count - 1) {
+            frame_index++;
             show_frame();
         } else {
-            state = PET_STATE_IDLE;
-            set_anim(&idle_set);
+            state = PET_STATE_SEATED;
+            lv_timer_set_period(frame_timer, seated_permanent
+                ? 500
+                : (uint32_t)(SEATED_HOLD_MIN_MS + rand() % (SEATED_HOLD_MAX_MS - SEATED_HOLD_MIN_MS)));
         }
         return;
-    case PET_STATE_SITTING:
-        /* Sit is a sit-down transition: play once, then hold the seated pose. */
-        if (frame_index == current_set->count - 1) return;
-        break;
+    case PET_STATE_SEATED:
+        if (!seated_permanent) {
+            stand_up_to_wander = false;
+            state = PET_STATE_STAND_UP;
+            lv_timer_set_period(frame_timer, 1);
+        }
+        return;
+    case PET_STATE_STAND_UP:
+        if (frame_index > 0) {
+            frame_index--;
+            show_frame();
+        } else if (stand_up_to_wander) {
+            state = PET_STATE_WANDER;
+            pick_new_target();
+            lv_timer_resume(move_timer);
+            kick_frame_timer();
+        } else {
+            state = PET_STATE_TURN_SOUTH;
+            lv_timer_set_period(frame_timer, TURN_STEP_MS);
+        }
+        return;
     }
     frame_index = (frame_index + 1) % current_set->count;
     show_frame();
@@ -337,7 +365,20 @@ void pet_notice_steps(uint32_t delta)
 {
     if (delta == 0) return;
     last_step_tick = lv_tick_get();
-    if (state != PET_STATE_WANDER) {
+    switch (state) {
+    case PET_STATE_WANDER:
+        break;
+    case PET_STATE_SIT_DOWN:
+    case PET_STATE_SEATED:
+        /* Stand up first (reverse sit), then walk from the north facing. */
+        stand_up_to_wander = true;
+        state = PET_STATE_STAND_UP;
+        kick_frame_timer();
+        break;
+    case PET_STATE_STAND_UP:
+        stand_up_to_wander = true;
+        break;
+    default:
         state = PET_STATE_WANDER;
         pick_new_target();
         lv_timer_resume(move_timer);
