@@ -57,7 +57,8 @@ void watchface_create(void)
 
     /* The pet nearly fills the panel; the step readout overlays it, watch-face style. */
     lv_obj_t *pet = pet_create(screen);
-    lv_obj_align(pet, LV_ALIGN_CENTER, 0, 8);
+    /* Offset compensates the hop headroom so the feet sit where they did. */
+    lv_obj_align(pet, LV_ALIGN_CENTER, 0, -12);
 
     lv_obj_t *steps_row = lv_obj_create(screen);
     lv_obj_remove_style_all(steps_row);

@@ -10,6 +10,8 @@
 #define ORBIT_RADIUS_Y 55
 #define WALK_SPEED_PX_S 70
 #define MOVE_TICK_MS 33
+/* Extra container height above the sprite so the hop never leaves its bounds. */
+#define HOP_HEADROOM 40
 
 typedef struct {
     const lv_image_dsc_t *const *frames;
@@ -35,7 +37,13 @@ static int orbit_direction = 1;
 static void show_frame(void)
 {
     lv_image_set_src(sprite, current_set->frames[frame_index]);
-    lv_timer_set_period(frame_timer, current_set->durations_ms[frame_index]);
+    uint32_t period = current_set->durations_ms[frame_index];
+    if (current_set == &idle_set) {
+        /* The authored idle is a continuous bounce; hold the rest pose for a
+           few seconds and play the bounce once, slowed, so idling reads calm. */
+        period = frame_index == 0 ? 3000 + (uint32_t)(rand() % 4000) : period * 2;
+    }
+    lv_timer_set_period(frame_timer, period);
 }
 
 static void set_anim(const anim_set_t *set)
@@ -139,11 +147,9 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     lv_obj_remove_style_all(pet_root);
     int32_t width, height;
     measure_frames(&width, &height);
-    /* Sized to the largest animation so feet stay planted when frames swap size. */
-    lv_obj_set_size(pet_root, width, height);
+    /* Sized to the largest animation (plus hop headroom) so nothing ever clips. */
+    lv_obj_set_size(pet_root, width, height + HOP_HEADROOM);
     lv_obj_remove_flag(pet_root, LV_OBJ_FLAG_SCROLLABLE);
-    /* The hop translates the sprite above the container — don't clip it. */
-    lv_obj_add_flag(pet_root, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     /* Start on the orbit so the first walk doesn't teleport. */
     lv_obj_set_style_translate_x(pet_root, (int32_t)(ORBIT_RADIUS_X * cosf(orbit_angle)), 0);
     lv_obj_set_style_translate_y(pet_root, (int32_t)(ORBIT_RADIUS_Y * sinf(orbit_angle)), 0);
