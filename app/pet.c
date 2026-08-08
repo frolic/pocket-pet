@@ -34,15 +34,21 @@ static uint32_t last_step_tick;
 static float orbit_angle = (float)M_PI / 2; /* start front-center, closest to viewer */
 static int orbit_direction = 1;
 
+/*
+ * The authored 6-frame idle loop reads as constant hopping outside a PMD
+ * dungeon. Instead: a two-frame breathing bob — rest pose and the subtle
+ * mid-rise frame — alternated slowly.
+ */
+#define IDLE_BOB_PERIOD_MS 700
+static const uint32_t IDLE_BOB_FRAMES[2] = {0, 2};
+static uint32_t idle_bob_index;
+
 static void show_frame(void)
 {
     lv_image_set_src(sprite, current_set->frames[frame_index]);
-    uint32_t period = current_set->durations_ms[frame_index];
-    if (current_set == &idle_set) {
-        /* The authored idle is a continuous bounce; hold the rest pose for a
-           few seconds and play the bounce once, slowed, so idling reads calm. */
-        period = frame_index == 0 ? 3000 + (uint32_t)(rand() % 4000) : period * 2;
-    }
+    uint32_t period = current_set == &idle_set
+        ? IDLE_BOB_PERIOD_MS
+        : current_set->durations_ms[frame_index];
     lv_timer_set_period(frame_timer, period);
 }
 
@@ -52,6 +58,10 @@ static void set_anim(const anim_set_t *set)
     current_set = set;
     /* Keep cadence position so direction changes don't restart the stride. */
     frame_index %= set->count;
+    if (set == &idle_set) {
+        idle_bob_index = 0;
+        frame_index = IDLE_BOB_FRAMES[0];
+    }
     show_frame();
 }
 
@@ -93,7 +103,12 @@ static void advance_frame(lv_timer_t *timer)
         settle_to_idle();
         return;
     }
-    frame_index = (frame_index + 1) % current_set->count;
+    if (current_set == &idle_set) {
+        idle_bob_index = (idle_bob_index + 1) % 2;
+        frame_index = IDLE_BOB_FRAMES[idle_bob_index];
+    } else {
+        frame_index = (frame_index + 1) % current_set->count;
+    }
     show_frame();
 }
 
