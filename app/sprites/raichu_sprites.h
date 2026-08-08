@@ -15,6 +15,10 @@ extern const lv_image_dsc_t *const raichu_nod_frames[];
 extern const uint32_t raichu_nod_durations_ms[];
 extern const uint32_t raichu_nod_frame_count;
 
+extern const lv_image_dsc_t *const raichu_pose_frames[];
+extern const uint32_t raichu_pose_durations_ms[];
+extern const uint32_t raichu_pose_frame_count;
+
 extern const lv_image_dsc_t *const raichu_walk_s_frames[];
 extern const uint32_t raichu_walk_s_durations_ms[];
 extern const uint32_t raichu_walk_s_frame_count;

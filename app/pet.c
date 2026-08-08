@@ -37,6 +37,7 @@ typedef enum {
     PET_STATE_STAND_UP,
     PET_STATE_TURN_LISTEN, /* record button held: turn to face the viewer... */
     PET_STATE_LISTENING,   /* ...and nod along while they speak */
+    PET_STATE_CELEBRATE,   /* recording done: a happy flourish, then idle */
 } pet_state_t;
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
@@ -61,6 +62,7 @@ typedef struct {
 static anim_set_t idle_set;
 static anim_set_t sit_set;
 static anim_set_t nod_set;
+static anim_set_t pose_set;
 /* Indexed by sheet-row order: S, SE, E, NE, N, NW, W, SW. */
 static anim_set_t walk_sets[8];
 
@@ -316,6 +318,16 @@ static void advance_frame(lv_timer_t *timer)
             lv_timer_set_period(frame_timer, 500 + (uint32_t)(rand() % 800));
         }
         return;
+    case PET_STATE_CELEBRATE:
+        if (frame_index < current_set->count - 1) {
+            frame_index++;
+            show_frame();
+        } else {
+            state = PET_STATE_IDLE;
+            set_anim(&idle_set);
+            lv_timer_reset(frame_timer);
+        }
+        return;
     }
     frame_index = (frame_index + 1) % current_set->count;
     show_frame();
@@ -360,6 +372,7 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     idle_set = (anim_set_t){raichu_idle_frames, raichu_idle_durations_ms, raichu_idle_frame_count};
     sit_set = (anim_set_t){raichu_sit_frames, raichu_sit_durations_ms, raichu_sit_frame_count};
     nod_set = (anim_set_t){raichu_nod_frames, raichu_nod_durations_ms, raichu_nod_frame_count};
+    pose_set = (anim_set_t){raichu_pose_frames, raichu_pose_durations_ms, raichu_pose_frame_count};
     walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
     walk_sets[1] = (anim_set_t){raichu_walk_se_frames, raichu_walk_se_durations_ms, raichu_walk_se_frame_count};
     walk_sets[2] = (anim_set_t){raichu_walk_e_frames, raichu_walk_e_durations_ms, raichu_walk_e_frame_count};
@@ -410,6 +423,7 @@ void pet_notice_steps(uint32_t delta)
         break;
     case PET_STATE_TURN_LISTEN:
     case PET_STATE_LISTENING:
+    case PET_STATE_CELEBRATE:
         /* Listening outranks walking; steps just refresh the timestamp. */
         break;
     default:
@@ -452,9 +466,11 @@ void pet_listen_end(void)
         state = PET_STATE_TURN_SOUTH;
         lv_timer_set_period(frame_timer, TURN_STEP_MS);
     } else if (state == PET_STATE_LISTENING) {
-        state = PET_STATE_IDLE;
-        set_anim(&idle_set);
+        /* Thanks-for-sharing flourish: strike the pose with a happy hop. */
+        state = PET_STATE_CELEBRATE;
+        set_anim(&pose_set);
         lv_timer_reset(frame_timer);
+        hop(24);
     }
 }
 
