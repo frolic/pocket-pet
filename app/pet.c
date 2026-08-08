@@ -34,22 +34,13 @@ static uint32_t last_step_tick;
 static float orbit_angle = (float)M_PI / 2; /* start front-center, closest to viewer */
 static int orbit_direction = 1;
 
-/*
- * The authored 6-frame idle loop reads as constant hopping outside a PMD
- * dungeon. Instead: a two-frame breathing bob — rest pose and the subtle
- * mid-rise frame — alternated slowly.
- */
-#define IDLE_BOB_PERIOD_MS 700
-static const uint32_t IDLE_BOB_FRAMES[2] = {0, 2};
-static uint32_t idle_bob_index;
+static void start_idle_bob(void);
+static void stop_idle_bob(void);
 
 static void show_frame(void)
 {
     lv_image_set_src(sprite, current_set->frames[frame_index]);
-    uint32_t period = current_set == &idle_set
-        ? IDLE_BOB_PERIOD_MS
-        : current_set->durations_ms[frame_index];
-    lv_timer_set_period(frame_timer, period);
+    lv_timer_set_period(frame_timer, current_set->durations_ms[frame_index]);
 }
 
 static void set_anim(const anim_set_t *set)
@@ -58,10 +49,7 @@ static void set_anim(const anim_set_t *set)
     current_set = set;
     /* Keep cadence position so direction changes don't restart the stride. */
     frame_index %= set->count;
-    if (set == &idle_set) {
-        idle_bob_index = 0;
-        frame_index = IDLE_BOB_FRAMES[0];
-    }
+    if (set == &idle_set) frame_index = 0;
     show_frame();
 }
 
@@ -94,6 +82,7 @@ static void settle_to_idle(void)
     walking = false;
     lv_timer_pause(move_timer);
     set_anim(&idle_set);
+    start_idle_bob();
 }
 
 static void advance_frame(lv_timer_t *timer)
@@ -103,18 +92,44 @@ static void advance_frame(lv_timer_t *timer)
         settle_to_idle();
         return;
     }
-    if (current_set == &idle_set) {
-        idle_bob_index = (idle_bob_index + 1) % 2;
-        frame_index = IDLE_BOB_FRAMES[idle_bob_index];
-    } else {
-        frame_index = (frame_index + 1) % current_set->count;
-    }
+    /* Idle is the static rest pose; the breathe is a whole-sprite translate. */
+    if (current_set == &idle_set) return;
+    frame_index = (frame_index + 1) % current_set->count;
     show_frame();
 }
 
 static void translate_y_exec(void *obj, int32_t value)
 {
     lv_obj_set_style_translate_y(obj, value, 0);
+}
+
+/* Full-body levitate bob: the authored bounce frames redraw the pose
+   (feet flicker), so idle breathes by moving the rest frame as one unit. */
+static void start_idle_bob(void)
+{
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, sprite);
+    lv_anim_set_exec_cb(&anim, translate_y_exec);
+    lv_anim_set_values(&anim, 0, -6);
+    lv_anim_set_duration(&anim, 900);
+    lv_anim_set_playback_duration(&anim, 900);
+    lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+    lv_anim_start(&anim);
+}
+
+static void stop_idle_bob(void)
+{
+    lv_anim_delete(sprite, translate_y_exec);
+    lv_obj_set_style_translate_y(sprite, 0, 0);
+}
+
+static void hop_done(lv_anim_t *anim)
+{
+    LV_UNUSED(anim);
+    /* The hop takes over the sprite's translate; resume the breathe after. */
+    if (!walking) start_idle_bob();
 }
 
 static void hop(int32_t height)
@@ -127,6 +142,7 @@ static void hop(int32_t height)
     lv_anim_set_duration(&anim, 160);
     lv_anim_set_playback_duration(&anim, 200);
     lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+    lv_anim_set_completed_cb(&anim, hop_done);
     lv_anim_start(&anim);
 }
 
@@ -179,6 +195,7 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     lv_timer_pause(move_timer);
     current_set = &idle_set;
     show_frame();
+    start_idle_bob();
     return pet_root;
 }
 
@@ -188,6 +205,7 @@ void pet_notice_steps(uint32_t delta)
     last_step_tick = lv_tick_get();
     if (!walking) {
         walking = true;
+        stop_idle_bob();
         orbit_direction = rand() % 2 == 0 ? 1 : -1;
         lv_timer_resume(move_timer);
     }
