@@ -7,13 +7,32 @@
 #define WALK_LINGER_MS 2500
 /* Continued quiet after settling before he sits down. */
 #define SIT_AFTER_MS 20000
-/* Ellipse the pet patrols — wider than tall so it reads as a ground circle. */
-#define ORBIT_RADIUS_X 110
-#define ORBIT_RADIUS_Y 55
+/* Rectangle the pet roams, as translate offsets from his home position. */
+#define ROAM_MIN_X (-115)
+#define ROAM_MAX_X 115
+#define ROAM_MIN_Y (-60)
+#define ROAM_MAX_Y 70
+#define MIN_LEG_PX 60
 #define WALK_SPEED_PX_S 70
 #define MOVE_TICK_MS 33
 /* Extra container height above the sprite so the hop never leaves its bounds. */
 #define HOP_HEADROOM 40
+/* Turn-in-place cadence: one 45-degree facing step per beat. */
+#define TURN_STEP_MS 120
+#define FACING_SOUTH 0
+
+typedef enum {
+    PET_STATE_WANDER,
+    PET_STATE_TURN_SOUTH,
+    PET_STATE_IDLE,
+    PET_STATE_SITTING,
+} pet_state_t;
+
+typedef enum {
+    WANDER_TURNING,
+    WANDER_WALKING,
+    WANDER_PAUSING,
+} wander_phase_t;
 
 typedef struct {
     const lv_image_dsc_t *const *frames;
@@ -31,11 +50,16 @@ static lv_obj_t *sprite;
 static lv_timer_t *frame_timer;
 static lv_timer_t *move_timer;
 static const anim_set_t *current_set;
-static bool walking;
+static pet_state_t state = PET_STATE_IDLE;
+static wander_phase_t wander_phase = WANDER_PAUSING;
+static int facing = FACING_SOUTH;
+static int target_facing = FACING_SOUTH;
 static uint32_t frame_index;
 static uint32_t last_step_tick;
-static float orbit_angle = (float)M_PI / 2; /* start front-center, closest to viewer */
-static int orbit_direction = 1;
+static float pos_x, pos_y = 30.0f;
+static float target_x, target_y;
+static int32_t pause_left_ms;
+static uint32_t turn_accum_ms;
 
 static void show_frame(void)
 {
@@ -47,56 +71,138 @@ static void set_anim(const anim_set_t *set)
 {
     if (current_set == set) return;
     current_set = set;
-    /* Keep cadence position so direction changes don't restart the stride. */
-    frame_index %= set->count;
-    if (set == &idle_set) frame_index = 0;
+    if (set == &idle_set || set == &sit_set) {
+        frame_index = 0;
+    } else {
+        /* Keep cadence position so direction changes don't restart the stride. */
+        frame_index %= set->count;
+    }
     show_frame();
 }
 
 /* Maps a movement heading (screen coords, y down) onto the 8 sheet rows. */
-static const anim_set_t *walk_set_for_heading(float velocity_x, float velocity_y)
+static int heading_row(float velocity_x, float velocity_y)
 {
     static const int row_for_octant[8] = {2, 1, 0, 7, 6, 5, 4, 3};
     float degrees = atan2f(velocity_y, velocity_x) * 180.0f / (float)M_PI;
     int octant = ((int)lroundf(degrees / 45.0f) + 8) % 8;
-    return &walk_sets[row_for_octant[octant]];
+    return row_for_octant[octant];
 }
 
-static void orbit_tick(lv_timer_t *timer)
+/* One 45-degree facing step toward `toward`, along the shorter rotation. */
+static void face_step_toward(int toward)
+{
+    int plus_steps = (toward - facing + 8) % 8;
+    int minus_steps = (facing - toward + 8) % 8;
+    facing = (facing + (plus_steps <= minus_steps ? 1 : 7)) % 8;
+    current_set = &walk_sets[facing];
+    frame_index = 0;
+    lv_image_set_src(sprite, current_set->frames[0]);
+}
+
+static void apply_position(void)
+{
+    lv_obj_set_style_translate_x(pet_root, (int32_t)pos_x, 0);
+    lv_obj_set_style_translate_y(pet_root, (int32_t)pos_y, 0);
+}
+
+static float random_in(float low, float high)
+{
+    return low + (high - low) * ((float)rand() / (float)RAND_MAX);
+}
+
+static void pick_new_target(void)
+{
+    do {
+        target_x = random_in(ROAM_MIN_X, ROAM_MAX_X);
+        target_y = random_in(ROAM_MIN_Y, ROAM_MAX_Y);
+    } while (hypotf(target_x - pos_x, target_y - pos_y) < MIN_LEG_PX);
+    target_facing = heading_row(target_x - pos_x, target_y - pos_y);
+    turn_accum_ms = 0;
+    wander_phase = facing == target_facing ? WANDER_WALKING : WANDER_TURNING;
+}
+
+/* Aimless explore: turn toward a random point, amble there, pause, repeat. */
+static void wander_tick(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
-    float average_radius = (ORBIT_RADIUS_X + ORBIT_RADIUS_Y) / 2.0f;
-    float angular_speed = WALK_SPEED_PX_S / average_radius;
-    orbit_angle += orbit_direction * angular_speed * MOVE_TICK_MS / 1000.0f;
-
-    lv_obj_set_style_translate_x(pet_root, (int32_t)(ORBIT_RADIUS_X * cosf(orbit_angle)), 0);
-    lv_obj_set_style_translate_y(pet_root, (int32_t)(ORBIT_RADIUS_Y * sinf(orbit_angle)), 0);
-
-    float velocity_x = -ORBIT_RADIUS_X * sinf(orbit_angle) * orbit_direction;
-    float velocity_y = ORBIT_RADIUS_Y * cosf(orbit_angle) * orbit_direction;
-    set_anim(walk_set_for_heading(velocity_x, velocity_y));
-}
-
-static void settle_to_idle(void)
-{
-    walking = false;
-    lv_timer_pause(move_timer);
-    set_anim(&idle_set);
+    switch (wander_phase) {
+    case WANDER_TURNING:
+        turn_accum_ms += MOVE_TICK_MS;
+        if (turn_accum_ms >= TURN_STEP_MS) {
+            turn_accum_ms = 0;
+            face_step_toward(target_facing);
+            if (facing == target_facing) wander_phase = WANDER_WALKING;
+        }
+        break;
+    case WANDER_WALKING: {
+        float distance_x = target_x - pos_x;
+        float distance_y = target_y - pos_y;
+        float distance = hypotf(distance_x, distance_y);
+        float step = WALK_SPEED_PX_S * MOVE_TICK_MS / 1000.0f;
+        if (distance <= step) {
+            pos_x = target_x;
+            pos_y = target_y;
+            apply_position();
+            pause_left_ms = (int32_t)random_in(250, 1500);
+            wander_phase = WANDER_PAUSING;
+            break;
+        }
+        pos_x += distance_x / distance * step;
+        pos_y += distance_y / distance * step;
+        apply_position();
+        set_anim(&walk_sets[facing]);
+        break;
+    }
+    case WANDER_PAUSING:
+        pause_left_ms -= MOVE_TICK_MS;
+        if (pause_left_ms <= 0) pick_new_target();
+        break;
+    }
 }
 
 static void advance_frame(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
-    if (walking && lv_tick_elaps(last_step_tick) > WALK_LINGER_MS) {
-        settle_to_idle();
+    switch (state) {
+    case PET_STATE_WANDER:
+        if (lv_tick_elaps(last_step_tick) > WALK_LINGER_MS) {
+            lv_timer_pause(move_timer);
+            state = PET_STATE_TURN_SOUTH;
+            lv_timer_set_period(frame_timer, TURN_STEP_MS);
+            return;
+        }
+        if (wander_phase != WANDER_WALKING) {
+            /* Standing while turning or pausing — hold the standing pose. */
+            if (frame_index != 0) {
+                frame_index = 0;
+                lv_image_set_src(sprite, current_set->frames[0]);
+            }
+            lv_timer_set_period(frame_timer, 100);
+            return;
+        }
+        break;
+    case PET_STATE_TURN_SOUTH:
+        if (facing == FACING_SOUTH) {
+            state = PET_STATE_IDLE;
+            set_anim(&idle_set);
+            return;
+        }
+        face_step_toward(FACING_SOUTH);
+        lv_timer_set_period(frame_timer, TURN_STEP_MS);
         return;
+    case PET_STATE_IDLE:
+        if (lv_tick_elaps(last_step_tick) > WALK_LINGER_MS + SIT_AFTER_MS) {
+            state = PET_STATE_SITTING;
+            set_anim(&sit_set);
+            return;
+        }
+        break;
+    case PET_STATE_SITTING:
+        /* Sit is a sit-down transition: play once, then hold the seated pose. */
+        if (frame_index == current_set->count - 1) return;
+        break;
     }
-    if (current_set == &idle_set && lv_tick_elaps(last_step_tick) > WALK_LINGER_MS + SIT_AFTER_MS) {
-        set_anim(&sit_set);
-        return;
-    }
-    /* Sit is a sit-down transition: play once, then hold the seated pose. */
-    if (current_set == &sit_set && frame_index == current_set->count - 1) return;
     frame_index = (frame_index + 1) % current_set->count;
     show_frame();
 }
@@ -155,9 +261,7 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     /* Sized to the largest animation (plus hop headroom) so nothing ever clips. */
     lv_obj_set_size(pet_root, width, height + HOP_HEADROOM);
     lv_obj_remove_flag(pet_root, LV_OBJ_FLAG_SCROLLABLE);
-    /* Start on the orbit so the first walk doesn't teleport. */
-    lv_obj_set_style_translate_x(pet_root, (int32_t)(ORBIT_RADIUS_X * cosf(orbit_angle)), 0);
-    lv_obj_set_style_translate_y(pet_root, (int32_t)(ORBIT_RADIUS_Y * sinf(orbit_angle)), 0);
+    apply_position();
 
     sprite = lv_image_create(pet_root);
     lv_obj_align(sprite, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -165,7 +269,7 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     lv_obj_add_event_cb(sprite, sprite_clicked, LV_EVENT_CLICKED, NULL);
 
     frame_timer = lv_timer_create(advance_frame, 100, NULL);
-    move_timer = lv_timer_create(orbit_tick, MOVE_TICK_MS, NULL);
+    move_timer = lv_timer_create(wander_tick, MOVE_TICK_MS, NULL);
     lv_timer_pause(move_timer);
     current_set = &idle_set;
     show_frame();
@@ -176,9 +280,9 @@ void pet_notice_steps(uint32_t delta)
 {
     if (delta == 0) return;
     last_step_tick = lv_tick_get();
-    if (!walking) {
-        walking = true;
-        orbit_direction = rand() % 2 == 0 ? 1 : -1;
+    if (state != PET_STATE_WANDER) {
+        state = PET_STATE_WANDER;
+        pick_new_target();
         lv_timer_resume(move_timer);
     }
 }
