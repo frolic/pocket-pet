@@ -22,7 +22,7 @@ TICK_MS = 1000 / 60  # AnimData durations are 60fps game ticks
 # a large character rather than wall-to-wall (13x uncapped felt too big).
 TARGET_WIDTH = 386
 TARGET_HEIGHT = 446
-SCALE_CAP = 9
+SCALE_CAP = 6
 
 
 def load_anim_meta(sprite_dir: Path, name: str) -> dict:
