@@ -16,7 +16,10 @@ from PIL import Image
 
 # Sheet rows are the 8 facing directions: 0=S, 1=SE, 2=E, 3=NE, 4=N, 5=NW, 6=W, 7=SW.
 DIRECTIONS = ["s", "se", "e", "ne", "n", "nw", "w", "sw"]
-ANIMS = [{"anim": "Idle", "row": 0, "name": "idle"}] + [
+ANIMS = [
+    {"anim": "Idle", "row": 0, "name": "idle"},
+    {"anim": "Sit", "row": 0, "name": "sit"},
+] + [
     {"anim": "Walk", "row": row, "name": f"walk_{direction}"}
     for row, direction in enumerate(DIRECTIONS)
 ]

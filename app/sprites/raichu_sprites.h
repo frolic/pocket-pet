@@ -7,6 +7,10 @@ extern const lv_image_dsc_t *const raichu_idle_frames[];
 extern const uint32_t raichu_idle_durations_ms[];
 extern const uint32_t raichu_idle_frame_count;
 
+extern const lv_image_dsc_t *const raichu_sit_frames[];
+extern const uint32_t raichu_sit_durations_ms[];
+extern const uint32_t raichu_sit_frame_count;
+
 extern const lv_image_dsc_t *const raichu_walk_s_frames[];
 extern const uint32_t raichu_walk_s_durations_ms[];
 extern const uint32_t raichu_walk_s_frame_count;

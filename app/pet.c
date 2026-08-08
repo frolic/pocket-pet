@@ -5,6 +5,8 @@
 
 /* How long after the last step the pet keeps walking before settling down. */
 #define WALK_LINGER_MS 2500
+/* Continued quiet after settling before he sits down. */
+#define SIT_AFTER_MS 20000
 /* Ellipse the pet patrols — wider than tall so it reads as a ground circle. */
 #define ORBIT_RADIUS_X 110
 #define ORBIT_RADIUS_Y 55
@@ -20,6 +22,7 @@ typedef struct {
 } anim_set_t;
 
 static anim_set_t idle_set;
+static anim_set_t sit_set;
 /* Indexed by sheet-row order: S, SE, E, NE, N, NW, W, SW. */
 static anim_set_t walk_sets[8];
 
@@ -33,9 +36,6 @@ static uint32_t frame_index;
 static uint32_t last_step_tick;
 static float orbit_angle = (float)M_PI / 2; /* start front-center, closest to viewer */
 static int orbit_direction = 1;
-
-static void start_idle_bob(void);
-static void stop_idle_bob(void);
 
 static void show_frame(void)
 {
@@ -82,7 +82,6 @@ static void settle_to_idle(void)
     walking = false;
     lv_timer_pause(move_timer);
     set_anim(&idle_set);
-    start_idle_bob();
 }
 
 static void advance_frame(lv_timer_t *timer)
@@ -92,8 +91,12 @@ static void advance_frame(lv_timer_t *timer)
         settle_to_idle();
         return;
     }
-    /* Idle is the static rest pose; the breathe is a whole-sprite translate. */
-    if (current_set == &idle_set) return;
+    if (current_set == &idle_set && lv_tick_elaps(last_step_tick) > WALK_LINGER_MS + SIT_AFTER_MS) {
+        set_anim(&sit_set);
+        return;
+    }
+    /* Sit is a sit-down transition: play once, then hold the seated pose. */
+    if (current_set == &sit_set && frame_index == current_set->count - 1) return;
     frame_index = (frame_index + 1) % current_set->count;
     show_frame();
 }
@@ -101,35 +104,6 @@ static void advance_frame(lv_timer_t *timer)
 static void translate_y_exec(void *obj, int32_t value)
 {
     lv_obj_set_style_translate_y(obj, value, 0);
-}
-
-/* Full-body levitate bob: the authored bounce frames redraw the pose
-   (feet flicker), so idle breathes by moving the rest frame as one unit. */
-static void start_idle_bob(void)
-{
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, sprite);
-    lv_anim_set_exec_cb(&anim, translate_y_exec);
-    lv_anim_set_values(&anim, 0, -6);
-    lv_anim_set_duration(&anim, 900);
-    lv_anim_set_playback_duration(&anim, 900);
-    lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
-    lv_anim_start(&anim);
-}
-
-static void stop_idle_bob(void)
-{
-    lv_anim_delete(sprite, translate_y_exec);
-    lv_obj_set_style_translate_y(sprite, 0, 0);
-}
-
-static void hop_done(lv_anim_t *anim)
-{
-    LV_UNUSED(anim);
-    /* The hop takes over the sprite's translate; resume the breathe after. */
-    if (!walking) start_idle_bob();
 }
 
 static void hop(int32_t height)
@@ -142,7 +116,6 @@ static void hop(int32_t height)
     lv_anim_set_duration(&anim, 160);
     lv_anim_set_playback_duration(&anim, 200);
     lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
-    lv_anim_set_completed_cb(&anim, hop_done);
     lv_anim_start(&anim);
 }
 
@@ -154,8 +127,8 @@ static void sprite_clicked(lv_event_t *event)
 
 static void measure_frames(int32_t *width, int32_t *height)
 {
-    *width = idle_set.frames[0]->header.w;
-    *height = idle_set.frames[0]->header.h;
+    *width = LV_MAX(idle_set.frames[0]->header.w, sit_set.frames[0]->header.w);
+    *height = LV_MAX(idle_set.frames[0]->header.h, sit_set.frames[0]->header.h);
     for (int row = 0; row < 8; row++) {
         *width = LV_MAX(*width, walk_sets[row].frames[0]->header.w);
         *height = LV_MAX(*height, walk_sets[row].frames[0]->header.h);
@@ -165,6 +138,7 @@ static void measure_frames(int32_t *width, int32_t *height)
 lv_obj_t *pet_create(lv_obj_t *parent)
 {
     idle_set = (anim_set_t){raichu_idle_frames, raichu_idle_durations_ms, raichu_idle_frame_count};
+    sit_set = (anim_set_t){raichu_sit_frames, raichu_sit_durations_ms, raichu_sit_frame_count};
     walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
     walk_sets[1] = (anim_set_t){raichu_walk_se_frames, raichu_walk_se_durations_ms, raichu_walk_se_frame_count};
     walk_sets[2] = (anim_set_t){raichu_walk_e_frames, raichu_walk_e_durations_ms, raichu_walk_e_frame_count};
@@ -195,7 +169,6 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     lv_timer_pause(move_timer);
     current_set = &idle_set;
     show_frame();
-    start_idle_bob();
     return pet_root;
 }
 
@@ -205,7 +178,6 @@ void pet_notice_steps(uint32_t delta)
     last_step_tick = lv_tick_get();
     if (!walking) {
         walking = true;
-        stop_idle_bob();
         orbit_direction = rand() % 2 == 0 ? 1 : -1;
         lv_timer_resume(move_timer);
     }
