@@ -36,8 +36,8 @@ void watchface_create(void)
     refresh_time(NULL);
 
     goal_arc = lv_arc_create(screen);
-    lv_obj_set_size(goal_arc, 330, 330);
-    lv_obj_align(goal_arc, LV_ALIGN_TOP_MID, 0, 55);
+    lv_obj_set_size(goal_arc, 404, 404);
+    lv_obj_align(goal_arc, LV_ALIGN_CENTER, 0, 0);
     lv_arc_set_rotation(goal_arc, 270);
     lv_arc_set_bg_angles(goal_arc, 0, 360);
     lv_arc_set_range(goal_arc, 0, 100);
@@ -49,20 +49,30 @@ void watchface_create(void)
     lv_obj_set_style_bg_opa(goal_arc, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_remove_flag(goal_arc, LV_OBJ_FLAG_CLICKABLE);
 
+    /* The pet nearly fills the panel; the step readout overlays it, watch-face style. */
     lv_obj_t *pet = pet_create(screen);
-    lv_obj_align(pet, LV_ALIGN_TOP_MID, 0, 105);
+    lv_obj_align(pet, LV_ALIGN_CENTER, 0, 8);
 
-    steps_label = lv_label_create(screen);
+    lv_obj_t *steps_row = lv_obj_create(screen);
+    lv_obj_remove_style_all(steps_row);
+    lv_obj_set_size(steps_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(steps_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(steps_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_set_style_pad_column(steps_row, 8, 0);
+    lv_obj_align(steps_row, LV_ALIGN_BOTTOM_MID, 0, -10);
+    /* Overlays the pet's feet — don't steal its clicks. */
+    lv_obj_remove_flag(steps_row, LV_OBJ_FLAG_CLICKABLE);
+
+    steps_label = lv_label_create(steps_row);
     lv_obj_set_style_text_font(steps_label, &lv_font_montserrat_44, 0);
     lv_obj_set_style_text_color(steps_label, lv_color_white(), 0);
-    lv_obj_align(steps_label, LV_ALIGN_BOTTOM_MID, 0, -60);
     lv_label_set_text(steps_label, "0");
 
-    lv_obj_t *caption = lv_label_create(screen);
+    lv_obj_t *caption = lv_label_create(steps_row);
     lv_obj_set_style_text_font(caption, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(caption, MUTED_COLOR, 0);
-    lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -28);
-    lv_label_set_text(caption, "steps today");
+    lv_obj_set_style_pad_bottom(caption, 6, 0);
+    lv_label_set_text(caption, "steps");
 }
 
 void watchface_set_steps(uint32_t total)

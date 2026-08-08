@@ -14,9 +14,14 @@ from pathlib import Path
 
 from PIL import Image
 
-SCALE = 4
 ANIMS = ["Idle", "Walk"]
 TICK_MS = 1000 / 60  # AnimData durations are 60fps game ticks
+
+# The pet should nearly fill the 410x502 panel while leaving room for the
+# clock and step count. Transparent padding is cropped away first, then the
+# largest integer scale that fits every animation into this box is used.
+TARGET_WIDTH = 386
+TARGET_HEIGHT = 446
 
 
 def load_anim_meta(sprite_dir: Path, name: str) -> dict:
@@ -35,8 +40,22 @@ def south_row_frames(sheet: Image.Image, frame_width: int, frame_height: int) ->
     frames = []
     for index in range(sheet.width // frame_width):
         frame = sheet.crop((index * frame_width, 0, (index + 1) * frame_width, frame_height))
-        frames.append(frame.resize((frame_width * SCALE, frame_height * SCALE), Image.NEAREST))
+        frames.append(frame.convert("RGBA"))
     return frames
+
+
+def union_alpha_bbox(frames: list) -> tuple:
+    """Smallest box containing every frame's visible pixels, so cropping never clips a pose."""
+    left, top, right, bottom = frames[0].getchannel("A").getbbox()
+    for frame in frames[1:]:
+        box = frame.getchannel("A").getbbox()
+        left, top = min(left, box[0]), min(top, box[1])
+        right, bottom = max(right, box[2]), max(bottom, box[3])
+    return left, top, right, bottom
+
+
+def fit_scale(content_width: int, content_height: int) -> int:
+    return min(TARGET_WIDTH // content_width, TARGET_HEIGHT // content_height)
 
 
 def frame_to_argb8888_bytes(frame: Image.Image) -> bytes:
@@ -85,11 +104,30 @@ def main() -> None:
         "",
     ]
 
+    anims = []
     for anim_name in ANIMS:
         meta = load_anim_meta(sprite_dir, anim_name)
         sheet = Image.open(sprite_dir / f"{anim_name}-Anim.png")
         frames = south_row_frames(sheet, meta["frame_width"], meta["frame_height"])
-        lower = anim_name.lower()
+        bbox = union_alpha_bbox(frames)
+        anims.append({"name": anim_name, "meta": meta, "frames": frames, "bbox": bbox})
+
+    # One scale for every animation so the pet doesn't change size between states.
+    scale = min(
+        fit_scale(anim["bbox"][2] - anim["bbox"][0], anim["bbox"][3] - anim["bbox"][1])
+        for anim in anims
+    )
+
+    for anim in anims:
+        lower = anim["name"].lower()
+        left, top, right, bottom = anim["bbox"]
+        frames = [
+            frame.crop(anim["bbox"]).resize(
+                ((right - left) * scale, (bottom - top) * scale), Image.NEAREST
+            )
+            for frame in anim["frames"]
+        ]
+        meta = anim["meta"]
 
         for index, frame in enumerate(frames):
             emit_frame(c_out, f"{prefix}_{lower}_{index}", frame)
@@ -106,7 +144,7 @@ def main() -> None:
         h_out.append(f"extern const uint32_t {prefix}_{lower}_frame_count;")
         h_out.append("")
 
-        print(f"{anim_name}: {len(frames)} frames {frames[0].width}x{frames[0].height}")
+        print(f"{anim['name']}: {len(frames)} frames {frames[0].width}x{frames[0].height} (scale {scale}x)")
 
     (out_dir / f"{prefix}_sprites.c").write_text("\n".join(c_out) + "\n")
     (out_dir / f"{prefix}_sprites.h").write_text("\n".join(h_out) + "\n")

@@ -77,8 +77,10 @@ lv_obj_t *pet_create(lv_obj_t *parent)
 {
     pet_root = lv_obj_create(parent);
     lv_obj_remove_style_all(pet_root);
-    /* Fixed to the tallest animation so feet stay planted when frames swap size. */
-    lv_obj_set_size(pet_root, 160, 224);
+    /* Sized to the tallest animation so feet stay planted when frames swap size. */
+    lv_obj_set_size(pet_root,
+                    LV_MAX(raichu_idle_frames[0]->header.w, raichu_walk_frames[0]->header.w),
+                    LV_MAX(raichu_idle_frames[0]->header.h, raichu_walk_frames[0]->header.h));
     lv_obj_remove_flag(pet_root, LV_OBJ_FLAG_SCROLLABLE);
 
     sprite = lv_image_create(pet_root);
