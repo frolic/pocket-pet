@@ -14,7 +14,12 @@ from pathlib import Path
 
 from PIL import Image
 
-ANIMS = ["Idle", "Walk"]
+# Sheet rows are the 8 facing directions: 0=S, 1=SE, 2=E, 3=NE, 4=N, 5=NW, 6=W, 7=SW.
+ANIMS = [
+    {"anim": "Idle", "row": 0, "name": "idle"},
+    {"anim": "Walk", "row": 2, "name": "walk_east"},
+    {"anim": "Walk", "row": 6, "name": "walk_west"},
+]
 TICK_MS = 1000 / 60  # AnimData durations are 60fps game ticks
 
 # Transparent padding is cropped away first, then the largest integer scale
@@ -37,10 +42,11 @@ def load_anim_meta(sprite_dir: Path, name: str) -> dict:
     raise SystemExit(f"animation {name} not found in AnimData.xml")
 
 
-def south_row_frames(sheet: Image.Image, frame_width: int, frame_height: int) -> list:
+def row_frames(sheet: Image.Image, frame_width: int, frame_height: int, row: int) -> list:
     frames = []
+    top = row * frame_height
     for index in range(sheet.width // frame_width):
-        frame = sheet.crop((index * frame_width, 0, (index + 1) * frame_width, frame_height))
+        frame = sheet.crop((index * frame_width, top, (index + 1) * frame_width, top + frame_height))
         frames.append(frame.convert("RGBA"))
     return frames
 
@@ -106,12 +112,12 @@ def main() -> None:
     ]
 
     anims = []
-    for anim_name in ANIMS:
-        meta = load_anim_meta(sprite_dir, anim_name)
-        sheet = Image.open(sprite_dir / f"{anim_name}-Anim.png")
-        frames = south_row_frames(sheet, meta["frame_width"], meta["frame_height"])
+    for spec in ANIMS:
+        meta = load_anim_meta(sprite_dir, spec["anim"])
+        sheet = Image.open(sprite_dir / f"{spec['anim']}-Anim.png")
+        frames = row_frames(sheet, meta["frame_width"], meta["frame_height"], spec["row"])
         bbox = union_alpha_bbox(frames)
-        anims.append({"name": anim_name, "meta": meta, "frames": frames, "bbox": bbox})
+        anims.append({"name": spec["name"], "meta": meta, "frames": frames, "bbox": bbox})
 
     # One scale for every animation so the pet doesn't change size between states.
     scale = min(

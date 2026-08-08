@@ -31,6 +31,7 @@ add_executable(frolic_sim
     app/watchface.c
     app/pet.c
     app/sprites/raichu_sprites.c
+    app/sprites/field_bg.c
 )
 target_include_directories(frolic_sim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(frolic_sim PRIVATE lvgl SDL2::SDL2)

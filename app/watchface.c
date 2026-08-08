@@ -2,10 +2,14 @@
 #include "lvgl.h"
 #include "watchface.h"
 #include "pet.h"
+#include "sprites/field_bg.h"
 
 #define STEP_GOAL 8000
 #define ACCENT_COLOR lv_color_hex(0xFFD93B)
-#define MUTED_COLOR lv_color_hex(0x8A8A8A)
+/* Dark inks that read against the grass field. */
+#define INK_COLOR lv_color_hex(0x24382A)
+#define MUTED_COLOR lv_color_hex(0x3E5844)
+#define RING_TRACK_COLOR lv_color_hex(0x69A862)
 
 static lv_obj_t *time_label;
 static lv_obj_t *steps_label;
@@ -23,13 +27,15 @@ static void refresh_time(lv_timer_t *timer)
 void watchface_create(void)
 {
     lv_obj_t *screen = lv_screen_active();
-    /* AMOLED: true black background is free pixels-off battery. */
-    lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* GBA-route grass field. (Costs AMOLED pixels-off battery; it's a pet, worth it.) */
+    lv_obj_t *background = lv_image_create(screen);
+    lv_image_set_src(background, field_bg);
 
     time_label = lv_label_create(screen);
     lv_obj_set_style_text_font(time_label, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(time_label, MUTED_COLOR, 0);
+    lv_obj_set_style_text_color(time_label, INK_COLOR, 0);
     lv_obj_align(time_label, LV_ALIGN_TOP_MID, 0, 16);
     lv_label_set_text(time_label, "--:--");
     lv_timer_create(refresh_time, 1000, NULL);
@@ -43,7 +49,7 @@ void watchface_create(void)
     lv_arc_set_range(goal_arc, 0, 100);
     lv_arc_set_value(goal_arc, 0);
     lv_obj_set_style_arc_width(goal_arc, 6, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(goal_arc, lv_color_hex(0x262626), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(goal_arc, RING_TRACK_COLOR, LV_PART_MAIN);
     lv_obj_set_style_arc_width(goal_arc, 6, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(goal_arc, ACCENT_COLOR, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(goal_arc, LV_OPA_TRANSP, LV_PART_KNOB);
@@ -65,7 +71,7 @@ void watchface_create(void)
 
     steps_label = lv_label_create(steps_row);
     lv_obj_set_style_text_font(steps_label, &lv_font_montserrat_44, 0);
-    lv_obj_set_style_text_color(steps_label, lv_color_white(), 0);
+    lv_obj_set_style_text_color(steps_label, INK_COLOR, 0);
     lv_label_set_text(steps_label, "0");
 
     lv_obj_t *caption = lv_label_create(steps_row);
