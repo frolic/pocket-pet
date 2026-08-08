@@ -17,11 +17,12 @@ from PIL import Image
 ANIMS = ["Idle", "Walk"]
 TICK_MS = 1000 / 60  # AnimData durations are 60fps game ticks
 
-# The pet should nearly fill the 410x502 panel while leaving room for the
-# clock and step count. Transparent padding is cropped away first, then the
-# largest integer scale that fits every animation into this box is used.
+# Transparent padding is cropped away first, then the largest integer scale
+# that fits every animation into this box is used, capped so the pet reads as
+# a large character rather than wall-to-wall (13x uncapped felt too big).
 TARGET_WIDTH = 386
 TARGET_HEIGHT = 446
+SCALE_CAP = 9
 
 
 def load_anim_meta(sprite_dir: Path, name: str) -> dict:
@@ -55,7 +56,7 @@ def union_alpha_bbox(frames: list) -> tuple:
 
 
 def fit_scale(content_width: int, content_height: int) -> int:
-    return min(TARGET_WIDTH // content_width, TARGET_HEIGHT // content_height)
+    return min(TARGET_WIDTH // content_width, TARGET_HEIGHT // content_height, SCALE_CAP)
 
 
 def frame_to_argb8888_bytes(frame: Image.Image) -> bytes:
