@@ -36,8 +36,7 @@ typedef enum {
     PET_STATE_SEATED,
     PET_STATE_STAND_UP,
     PET_STATE_TURN_LISTEN, /* record button held: turn to face the viewer... */
-    PET_STATE_LISTENING,   /* ...and hold an attentive pose while they speak */
-    PET_STATE_NOD,         /* release: acknowledge, then back to idle */
+    PET_STATE_LISTENING,   /* ...and nod along while they speak */
 } pet_state_t;
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
@@ -303,28 +302,18 @@ static void advance_frame(lv_timer_t *timer)
     case PET_STATE_TURN_LISTEN:
         if (facing == FACING_SOUTH) {
             state = PET_STATE_LISTENING;
-            set_anim(&idle_set);
-            lv_timer_set_period(frame_timer, 200);
+            set_anim(&nod_set);
             return;
         }
         face_step_toward(FACING_SOUTH);
         lv_timer_set_period(frame_timer, TURN_STEP_MS);
         return;
     case PET_STATE_LISTENING:
-        /* Attentive hold on the rest pose while the user speaks. */
-        if (frame_index != 0) {
-            frame_index = 0;
-            lv_image_set_src(sprite, current_set->frames[0]);
-        }
-        lv_timer_set_period(frame_timer, 200);
-        return;
-    case PET_STATE_NOD:
-        if (frame_index < current_set->count - 1) {
-            frame_index++;
-            show_frame();
-        } else {
-            state = PET_STATE_IDLE;
-            set_anim(&idle_set);
+        /* Nods along while the user speaks: nod, a beat of stillness, nod. */
+        frame_index = (frame_index + 1) % current_set->count;
+        show_frame();
+        if (frame_index == 0) {
+            lv_timer_set_period(frame_timer, 500 + (uint32_t)(rand() % 800));
         }
         return;
     }
@@ -421,7 +410,6 @@ void pet_notice_steps(uint32_t delta)
         break;
     case PET_STATE_TURN_LISTEN:
     case PET_STATE_LISTENING:
-    case PET_STATE_NOD:
         /* Listening outranks walking; steps just refresh the timestamp. */
         break;
     default:
@@ -449,7 +437,6 @@ void pet_listen_start(void)
         break;
     case PET_STATE_TURN_LISTEN:
     case PET_STATE_LISTENING:
-    case PET_STATE_NOD:
         break;
     default:
         state = PET_STATE_TURN_LISTEN;
@@ -460,10 +447,14 @@ void pet_listen_start(void)
 void pet_listen_end(void)
 {
     listen_requested = false;
-    if (state == PET_STATE_TURN_LISTEN || state == PET_STATE_LISTENING) {
-        state = PET_STATE_NOD;
-        set_anim(&nod_set);
-        kick_frame_timer();
+    if (state == PET_STATE_TURN_LISTEN) {
+        /* Released mid-turn: finish turning to face front, then idle. */
+        state = PET_STATE_TURN_SOUTH;
+        lv_timer_set_period(frame_timer, TURN_STEP_MS);
+    } else if (state == PET_STATE_LISTENING) {
+        state = PET_STATE_IDLE;
+        set_anim(&idle_set);
+        lv_timer_reset(frame_timer);
     }
 }
 
