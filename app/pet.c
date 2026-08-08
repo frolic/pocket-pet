@@ -38,7 +38,11 @@ typedef enum {
     PET_STATE_TURN_LISTEN, /* record button held: turn to face the viewer... */
     PET_STATE_LISTENING,   /* ...and nod along while they speak */
     PET_STATE_CELEBRATE,   /* recording done: a happy flourish, then idle */
+    PET_STATE_FACE_FINGER, /* finger on the field: rotate to track it */
 } pet_state_t;
+
+/* Faster than the turn-in-place beat so finger tracking feels responsive. */
+#define FACE_FINGER_STEP_MS 80
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
 #define IDLE_REST_MIN_MS 2500
@@ -84,7 +88,7 @@ static uint32_t turn_accum_ms;
 static bool seated_permanent;   /* long-quiet sit vs a brief idle sit-break */
 static bool stand_up_to_wander; /* steps arrived while seated — walk after standing */
 static bool listen_requested;   /* record button held while mid-stand-up */
-static bool called_over;        /* walking to a tapped spot — don't settle mid-leg */
+static int finger_facing = FACING_SOUTH;
 
 static void show_frame(void)
 {
@@ -183,8 +187,6 @@ static void wander_tick(lv_timer_t *timer)
             apply_position();
             pause_left_ms = (int32_t)random_in(250, 1500);
             wander_phase = WANDER_PAUSING;
-            /* Arrived at a tapped spot: normal settle rules apply again. */
-            called_over = false;
             break;
         }
         pos_x += distance_x / distance * step;
@@ -205,7 +207,7 @@ static void advance_frame(lv_timer_t *timer)
     LV_UNUSED(timer);
     switch (state) {
     case PET_STATE_WANDER:
-        if (!called_over && lv_tick_elaps(last_step_tick) > WALK_LINGER_MS) {
+        if (lv_tick_elaps(last_step_tick) > WALK_LINGER_MS) {
             lv_timer_pause(move_timer);
             state = PET_STATE_TURN_SOUTH;
             lv_timer_set_period(frame_timer, TURN_STEP_MS);
@@ -328,6 +330,15 @@ static void advance_frame(lv_timer_t *timer)
             lv_timer_reset(frame_timer);
         }
         return;
+    case PET_STATE_FACE_FINGER:
+        if (facing != finger_facing) {
+            face_step_toward(finger_facing);
+        } else if (frame_index != 0) {
+            frame_index = 0;
+            lv_image_set_src(sprite, current_set->frames[0]);
+        }
+        lv_timer_set_period(frame_timer, FACE_FINGER_STEP_MS);
+        return;
     }
     frame_index = (frame_index + 1) % current_set->count;
     show_frame();
@@ -424,7 +435,8 @@ void pet_notice_steps(uint32_t delta)
     case PET_STATE_TURN_LISTEN:
     case PET_STATE_LISTENING:
     case PET_STATE_CELEBRATE:
-        /* Listening outranks walking; steps just refresh the timestamp. */
+    case PET_STATE_FACE_FINGER:
+        /* Attention interactions outrank walking; steps refresh the timestamp. */
         break;
     default:
         state = PET_STATE_WANDER;
@@ -437,7 +449,6 @@ void pet_notice_steps(uint32_t delta)
 void pet_listen_start(void)
 {
     lv_timer_pause(move_timer);
-    called_over = false;
     switch (state) {
     case PET_STATE_SIT_DOWN:
     case PET_STATE_SEATED:
@@ -474,31 +485,38 @@ void pet_listen_end(void)
     }
 }
 
-void pet_call_to(int32_t x, int32_t y)
+void pet_face_toward(int32_t x, int32_t y)
 {
     switch (state) {
     case PET_STATE_WANDER:
     case PET_STATE_TURN_SOUTH:
     case PET_STATE_IDLE:
+    case PET_STATE_FACE_FINGER:
         break;
     default:
-        /* Seated or listening: he's busy; ignore the tap. */
+        /* Seated or listening: he's busy; ignore the finger. */
         return;
     }
 
     lv_obj_t *parent = lv_obj_get_parent(pet_root);
-    /* Feet sit at the container bottom; aim them at the tapped spot. */
-    float home_x = lv_obj_get_width(parent) / 2.0f;
-    float home_feet_y = lv_obj_get_height(parent) / 2.0f - 12 + lv_obj_get_height(pet_root) / 2.0f;
-    target_x = LV_CLAMP(ROAM_MIN_X, x - home_x, ROAM_MAX_X);
-    target_y = LV_CLAMP(ROAM_MIN_Y, y - home_feet_y, ROAM_MAX_Y);
-    if (hypotf(target_x - pos_x, target_y - pos_y) < 10.0f) return;
+    float pet_x = lv_obj_get_width(parent) / 2.0f + pos_x;
+    float pet_y = lv_obj_get_height(parent) / 2.0f - 12 + pos_y;
+    float finger_x = x - pet_x;
+    float finger_y = y - pet_y;
+    /* Too close to call a direction — keep the current facing. */
+    if (hypotf(finger_x, finger_y) < 25.0f) return;
+    finger_facing = heading_row(finger_x, finger_y);
 
-    target_facing = heading_row(target_x - pos_x, target_y - pos_y);
-    turn_accum_ms = 0;
-    wander_phase = facing == target_facing ? WANDER_WALKING : WANDER_TURNING;
-    called_over = true;
-    state = PET_STATE_WANDER;
-    lv_timer_resume(move_timer);
-    kick_frame_timer();
+    if (state != PET_STATE_FACE_FINGER) {
+        lv_timer_pause(move_timer);
+        state = PET_STATE_FACE_FINGER;
+        kick_frame_timer();
+    }
+}
+
+void pet_face_end(void)
+{
+    if (state != PET_STATE_FACE_FINGER) return;
+    state = PET_STATE_TURN_SOUTH;
+    lv_timer_set_period(frame_timer, TURN_STEP_MS);
 }

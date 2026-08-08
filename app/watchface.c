@@ -26,16 +26,20 @@ static void refresh_time(lv_timer_t *timer)
     lv_label_set_text_fmt(time_label, "%02d:%02d", local.tm_hour, local.tm_min);
 }
 
-static void field_clicked(lv_event_t *event)
+static void field_touched(lv_event_t *event)
 {
-    LV_UNUSED(event);
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        pet_face_end();
+        return;
+    }
     lv_indev_t *indev = lv_indev_active();
     if (indev == NULL) return;
     lv_point_t point;
     lv_indev_get_point(indev, &point);
     lv_area_t area;
     lv_obj_get_coords(panel, &area);
-    pet_call_to(point.x - area.x1, point.y - area.y1);
+    pet_face_toward(point.x - area.x1, point.y - area.y1);
 }
 
 void watchface_create(lv_obj_t *parent)
@@ -43,7 +47,10 @@ void watchface_create(lv_obj_t *parent)
     panel = parent;
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(panel, field_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(panel, field_touched, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(panel, field_touched, LV_EVENT_PRESSING, NULL);
+    lv_obj_add_event_cb(panel, field_touched, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(panel, field_touched, LV_EVENT_PRESS_LOST, NULL);
     lv_obj_t *screen = panel;
 
     /* GBA-route grass field. (Costs AMOLED pixels-off battery; it's a pet, worth it.) */
