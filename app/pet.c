@@ -76,6 +76,17 @@ static void show_frame(void)
     lv_timer_set_period(frame_timer, current_set->durations_ms[frame_index]);
 }
 
+/*
+ * Idle rests and seated holds park the frame timer on multi-second periods.
+ * When a state change interrupts one, the next frame decision must happen
+ * now — otherwise movement resumes under a frozen sprite (the glide bug).
+ */
+static void kick_frame_timer(void)
+{
+    lv_timer_set_period(frame_timer, 1);
+    lv_timer_reset(frame_timer);
+}
+
 static void set_anim(const anim_set_t *set)
 {
     if (current_set == set) return;
@@ -330,5 +341,6 @@ void pet_notice_steps(uint32_t delta)
         state = PET_STATE_WANDER;
         pick_new_target();
         lv_timer_resume(move_timer);
+        kick_frame_timer();
     }
 }
