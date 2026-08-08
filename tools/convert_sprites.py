@@ -15,10 +15,10 @@ from pathlib import Path
 from PIL import Image
 
 # Sheet rows are the 8 facing directions: 0=S, 1=SE, 2=E, 3=NE, 4=N, 5=NW, 6=W, 7=SW.
-ANIMS = [
-    {"anim": "Idle", "row": 0, "name": "idle"},
-    {"anim": "Walk", "row": 2, "name": "walk_east"},
-    {"anim": "Walk", "row": 6, "name": "walk_west"},
+DIRECTIONS = ["s", "se", "e", "ne", "n", "nw", "w", "sw"]
+ANIMS = [{"anim": "Idle", "row": 0, "name": "idle"}] + [
+    {"anim": "Walk", "row": row, "name": f"walk_{direction}"}
+    for row, direction in enumerate(DIRECTIONS)
 ]
 TICK_MS = 1000 / 60  # AnimData durations are 60fps game ticks
 

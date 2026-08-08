@@ -7,11 +7,35 @@ extern const lv_image_dsc_t *const raichu_idle_frames[];
 extern const uint32_t raichu_idle_durations_ms[];
 extern const uint32_t raichu_idle_frame_count;
 
-extern const lv_image_dsc_t *const raichu_walk_east_frames[];
-extern const uint32_t raichu_walk_east_durations_ms[];
-extern const uint32_t raichu_walk_east_frame_count;
+extern const lv_image_dsc_t *const raichu_walk_s_frames[];
+extern const uint32_t raichu_walk_s_durations_ms[];
+extern const uint32_t raichu_walk_s_frame_count;
 
-extern const lv_image_dsc_t *const raichu_walk_west_frames[];
-extern const uint32_t raichu_walk_west_durations_ms[];
-extern const uint32_t raichu_walk_west_frame_count;
+extern const lv_image_dsc_t *const raichu_walk_se_frames[];
+extern const uint32_t raichu_walk_se_durations_ms[];
+extern const uint32_t raichu_walk_se_frame_count;
+
+extern const lv_image_dsc_t *const raichu_walk_e_frames[];
+extern const uint32_t raichu_walk_e_durations_ms[];
+extern const uint32_t raichu_walk_e_frame_count;
+
+extern const lv_image_dsc_t *const raichu_walk_ne_frames[];
+extern const uint32_t raichu_walk_ne_durations_ms[];
+extern const uint32_t raichu_walk_ne_frame_count;
+
+extern const lv_image_dsc_t *const raichu_walk_n_frames[];
+extern const uint32_t raichu_walk_n_durations_ms[];
+extern const uint32_t raichu_walk_n_frame_count;
+
+extern const lv_image_dsc_t *const raichu_walk_nw_frames[];
+extern const uint32_t raichu_walk_nw_durations_ms[];
+extern const uint32_t raichu_walk_nw_frame_count;
+
+extern const lv_image_dsc_t *const raichu_walk_w_frames[];
+extern const uint32_t raichu_walk_w_durations_ms[];
+extern const uint32_t raichu_walk_w_frame_count;
+
+extern const lv_image_dsc_t *const raichu_walk_sw_frames[];
+extern const uint32_t raichu_walk_sw_durations_ms[];
+extern const uint32_t raichu_walk_sw_frame_count;
 

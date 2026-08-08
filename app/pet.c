@@ -1,13 +1,15 @@
+#include <math.h>
 #include <stdlib.h>
 #include "pet.h"
 #include "sprites/raichu_sprites.h"
 
 /* How long after the last step the pet keeps walking before settling down. */
 #define WALK_LINGER_MS 2500
-/* Horizontal wander range either side of center, and walking speed. */
-#define WANDER_RANGE 110
+/* Ellipse the pet patrols — wider than tall so it reads as a ground circle. */
+#define ORBIT_RADIUS_X 110
+#define ORBIT_RADIUS_Y 55
 #define WALK_SPEED_PX_S 70
-#define MIN_LEG_PX 60
+#define MOVE_TICK_MS 33
 
 typedef struct {
     const lv_image_dsc_t *const *frames;
@@ -16,16 +18,19 @@ typedef struct {
 } anim_set_t;
 
 static anim_set_t idle_set;
-static anim_set_t walk_east_set;
-static anim_set_t walk_west_set;
+/* Indexed by sheet-row order: S, SE, E, NE, N, NW, W, SW. */
+static anim_set_t walk_sets[8];
 
 static lv_obj_t *pet_root;
 static lv_obj_t *sprite;
 static lv_timer_t *frame_timer;
+static lv_timer_t *move_timer;
 static const anim_set_t *current_set;
 static bool walking;
 static uint32_t frame_index;
 static uint32_t last_step_tick;
+static float orbit_angle = (float)M_PI / 2; /* start front-center, closest to viewer */
+static int orbit_direction = 1;
 
 static void show_frame(void)
 {
@@ -35,55 +40,41 @@ static void show_frame(void)
 
 static void set_anim(const anim_set_t *set)
 {
+    if (current_set == set) return;
     current_set = set;
-    frame_index = 0;
+    /* Keep cadence position so direction changes don't restart the stride. */
+    frame_index %= set->count;
     show_frame();
 }
 
-static void translate_x_exec(void *obj, int32_t value)
+/* Maps a movement heading (screen coords, y down) onto the 8 sheet rows. */
+static const anim_set_t *walk_set_for_heading(float velocity_x, float velocity_y)
 {
-    lv_obj_set_style_translate_x(obj, value, 0);
+    static const int row_for_octant[8] = {2, 1, 0, 7, 6, 5, 4, 3};
+    float degrees = atan2f(velocity_y, velocity_x) * 180.0f / (float)M_PI;
+    int octant = ((int)lroundf(degrees / 45.0f) + 8) % 8;
+    return &walk_sets[row_for_octant[octant]];
 }
 
-static void translate_y_exec(void *obj, int32_t value)
+static void orbit_tick(lv_timer_t *timer)
 {
-    lv_obj_set_style_translate_y(obj, value, 0);
-}
+    LV_UNUSED(timer);
+    float average_radius = (ORBIT_RADIUS_X + ORBIT_RADIUS_Y) / 2.0f;
+    float angular_speed = WALK_SPEED_PX_S / average_radius;
+    orbit_angle += orbit_direction * angular_speed * MOVE_TICK_MS / 1000.0f;
 
-static void wander_leg_done(lv_anim_t *anim);
+    lv_obj_set_style_translate_x(pet_root, (int32_t)(ORBIT_RADIUS_X * cosf(orbit_angle)), 0);
+    lv_obj_set_style_translate_y(pet_root, (int32_t)(ORBIT_RADIUS_Y * sinf(orbit_angle)), 0);
 
-/* Picks a new horizontal target and walks there with the matching side-facing frames. */
-static void start_wander_leg(void)
-{
-    int32_t current = lv_obj_get_style_translate_x(pet_root, LV_PART_MAIN);
-    int32_t target;
-    do {
-        target = (rand() % (2 * WANDER_RANGE + 1)) - WANDER_RANGE;
-    } while (LV_ABS(target - current) < MIN_LEG_PX);
-
-    set_anim(target > current ? &walk_east_set : &walk_west_set);
-
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, pet_root);
-    lv_anim_set_exec_cb(&anim, translate_x_exec);
-    lv_anim_set_values(&anim, current, target);
-    lv_anim_set_duration(&anim, LV_ABS(target - current) * 1000 / WALK_SPEED_PX_S);
-    lv_anim_set_path_cb(&anim, lv_anim_path_linear);
-    lv_anim_set_completed_cb(&anim, wander_leg_done);
-    lv_anim_start(&anim);
-}
-
-static void wander_leg_done(lv_anim_t *anim)
-{
-    LV_UNUSED(anim);
-    if (walking) start_wander_leg();
+    float velocity_x = -ORBIT_RADIUS_X * sinf(orbit_angle) * orbit_direction;
+    float velocity_y = ORBIT_RADIUS_Y * cosf(orbit_angle) * orbit_direction;
+    set_anim(walk_set_for_heading(velocity_x, velocity_y));
 }
 
 static void settle_to_idle(void)
 {
     walking = false;
-    lv_anim_delete(pet_root, translate_x_exec);
+    lv_timer_pause(move_timer);
     set_anim(&idle_set);
 }
 
@@ -96,6 +87,11 @@ static void advance_frame(lv_timer_t *timer)
     }
     frame_index = (frame_index + 1) % current_set->count;
     show_frame();
+}
+
+static void translate_y_exec(void *obj, int32_t value)
+{
+    lv_obj_set_style_translate_y(obj, value, 0);
 }
 
 static void hop(int32_t height)
@@ -117,31 +113,40 @@ static void sprite_clicked(lv_event_t *event)
     hop(34);
 }
 
-static int32_t max_frame_width(void)
+static void measure_frames(int32_t *width, int32_t *height)
 {
-    int32_t width = raichu_idle_frames[0]->header.w;
-    width = LV_MAX(width, raichu_walk_east_frames[0]->header.w);
-    return LV_MAX(width, raichu_walk_west_frames[0]->header.w);
-}
-
-static int32_t max_frame_height(void)
-{
-    int32_t height = raichu_idle_frames[0]->header.h;
-    height = LV_MAX(height, raichu_walk_east_frames[0]->header.h);
-    return LV_MAX(height, raichu_walk_west_frames[0]->header.h);
+    *width = idle_set.frames[0]->header.w;
+    *height = idle_set.frames[0]->header.h;
+    for (int row = 0; row < 8; row++) {
+        *width = LV_MAX(*width, walk_sets[row].frames[0]->header.w);
+        *height = LV_MAX(*height, walk_sets[row].frames[0]->header.h);
+    }
 }
 
 lv_obj_t *pet_create(lv_obj_t *parent)
 {
     idle_set = (anim_set_t){raichu_idle_frames, raichu_idle_durations_ms, raichu_idle_frame_count};
-    walk_east_set = (anim_set_t){raichu_walk_east_frames, raichu_walk_east_durations_ms, raichu_walk_east_frame_count};
-    walk_west_set = (anim_set_t){raichu_walk_west_frames, raichu_walk_west_durations_ms, raichu_walk_west_frame_count};
+    walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
+    walk_sets[1] = (anim_set_t){raichu_walk_se_frames, raichu_walk_se_durations_ms, raichu_walk_se_frame_count};
+    walk_sets[2] = (anim_set_t){raichu_walk_e_frames, raichu_walk_e_durations_ms, raichu_walk_e_frame_count};
+    walk_sets[3] = (anim_set_t){raichu_walk_ne_frames, raichu_walk_ne_durations_ms, raichu_walk_ne_frame_count};
+    walk_sets[4] = (anim_set_t){raichu_walk_n_frames, raichu_walk_n_durations_ms, raichu_walk_n_frame_count};
+    walk_sets[5] = (anim_set_t){raichu_walk_nw_frames, raichu_walk_nw_durations_ms, raichu_walk_nw_frame_count};
+    walk_sets[6] = (anim_set_t){raichu_walk_w_frames, raichu_walk_w_durations_ms, raichu_walk_w_frame_count};
+    walk_sets[7] = (anim_set_t){raichu_walk_sw_frames, raichu_walk_sw_durations_ms, raichu_walk_sw_frame_count};
 
     pet_root = lv_obj_create(parent);
     lv_obj_remove_style_all(pet_root);
+    int32_t width, height;
+    measure_frames(&width, &height);
     /* Sized to the largest animation so feet stay planted when frames swap size. */
-    lv_obj_set_size(pet_root, max_frame_width(), max_frame_height());
+    lv_obj_set_size(pet_root, width, height);
     lv_obj_remove_flag(pet_root, LV_OBJ_FLAG_SCROLLABLE);
+    /* The hop translates the sprite above the container — don't clip it. */
+    lv_obj_add_flag(pet_root, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    /* Start on the orbit so the first walk doesn't teleport. */
+    lv_obj_set_style_translate_x(pet_root, (int32_t)(ORBIT_RADIUS_X * cosf(orbit_angle)), 0);
+    lv_obj_set_style_translate_y(pet_root, (int32_t)(ORBIT_RADIUS_Y * sinf(orbit_angle)), 0);
 
     sprite = lv_image_create(pet_root);
     lv_obj_align(sprite, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -149,7 +154,10 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     lv_obj_add_event_cb(sprite, sprite_clicked, LV_EVENT_CLICKED, NULL);
 
     frame_timer = lv_timer_create(advance_frame, 100, NULL);
-    set_anim(&idle_set);
+    move_timer = lv_timer_create(orbit_tick, MOVE_TICK_MS, NULL);
+    lv_timer_pause(move_timer);
+    current_set = &idle_set;
+    show_frame();
     return pet_root;
 }
 
@@ -159,6 +167,7 @@ void pet_notice_steps(uint32_t delta)
     last_step_tick = lv_tick_get();
     if (!walking) {
         walking = true;
-        start_wander_leg();
+        orbit_direction = rand() % 2 == 0 ? 1 : -1;
+        lv_timer_resume(move_timer);
     }
 }
