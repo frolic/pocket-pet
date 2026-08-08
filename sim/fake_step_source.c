@@ -23,6 +23,11 @@ void fake_step_source_start(void)
     lv_timer_create(step_tick, 600, NULL);
 }
 
+void fake_step_source_add(uint32_t count)
+{
+    total_steps += count;
+}
+
 uint32_t step_source_total(void)
 {
     return total_steps;

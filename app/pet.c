@@ -35,6 +35,9 @@ typedef enum {
     PET_STATE_SIT_DOWN,
     PET_STATE_SEATED,
     PET_STATE_STAND_UP,
+    PET_STATE_TURN_LISTEN, /* record button held: turn to face the viewer... */
+    PET_STATE_LISTENING,   /* ...and hold an attentive pose while they speak */
+    PET_STATE_NOD,         /* release: acknowledge, then back to idle */
 } pet_state_t;
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
@@ -58,6 +61,7 @@ typedef struct {
 
 static anim_set_t idle_set;
 static anim_set_t sit_set;
+static anim_set_t nod_set;
 /* Indexed by sheet-row order: S, SE, E, NE, N, NW, W, SW. */
 static anim_set_t walk_sets[8];
 
@@ -78,6 +82,8 @@ static int32_t pause_left_ms;
 static uint32_t turn_accum_ms;
 static bool seated_permanent;   /* long-quiet sit vs a brief idle sit-break */
 static bool stand_up_to_wander; /* steps arrived while seated — walk after standing */
+static bool listen_requested;   /* record button held while mid-stand-up */
+static bool called_over;        /* walking to a tapped spot — don't settle mid-leg */
 
 static void show_frame(void)
 {
@@ -100,11 +106,12 @@ static void set_anim(const anim_set_t *set)
 {
     if (current_set == set) return;
     current_set = set;
-    if (set == &idle_set || set == &sit_set) {
-        frame_index = 0;
-    } else {
+    bool is_walk = set >= &walk_sets[0] && set <= &walk_sets[7];
+    if (is_walk) {
         /* Keep cadence position so direction changes don't restart the stride. */
         frame_index %= set->count;
+    } else {
+        frame_index = 0;
     }
     show_frame();
 }
@@ -175,6 +182,8 @@ static void wander_tick(lv_timer_t *timer)
             apply_position();
             pause_left_ms = (int32_t)random_in(250, 1500);
             wander_phase = WANDER_PAUSING;
+            /* Arrived at a tapped spot: normal settle rules apply again. */
+            called_over = false;
             break;
         }
         pos_x += distance_x / distance * step;
@@ -195,7 +204,7 @@ static void advance_frame(lv_timer_t *timer)
     LV_UNUSED(timer);
     switch (state) {
     case PET_STATE_WANDER:
-        if (lv_tick_elaps(last_step_tick) > WALK_LINGER_MS) {
+        if (!called_over && lv_tick_elaps(last_step_tick) > WALK_LINGER_MS) {
             lv_timer_pause(move_timer);
             state = PET_STATE_TURN_SOUTH;
             lv_timer_set_period(frame_timer, TURN_STEP_MS);
@@ -277,6 +286,10 @@ static void advance_frame(lv_timer_t *timer)
         if (frame_index > 0) {
             frame_index--;
             show_frame();
+        } else if (listen_requested) {
+            listen_requested = false;
+            state = PET_STATE_TURN_LISTEN;
+            lv_timer_set_period(frame_timer, TURN_STEP_MS);
         } else if (stand_up_to_wander) {
             state = PET_STATE_WANDER;
             pick_new_target();
@@ -285,6 +298,33 @@ static void advance_frame(lv_timer_t *timer)
         } else {
             state = PET_STATE_TURN_SOUTH;
             lv_timer_set_period(frame_timer, TURN_STEP_MS);
+        }
+        return;
+    case PET_STATE_TURN_LISTEN:
+        if (facing == FACING_SOUTH) {
+            state = PET_STATE_LISTENING;
+            set_anim(&idle_set);
+            lv_timer_set_period(frame_timer, 200);
+            return;
+        }
+        face_step_toward(FACING_SOUTH);
+        lv_timer_set_period(frame_timer, TURN_STEP_MS);
+        return;
+    case PET_STATE_LISTENING:
+        /* Attentive hold on the rest pose while the user speaks. */
+        if (frame_index != 0) {
+            frame_index = 0;
+            lv_image_set_src(sprite, current_set->frames[0]);
+        }
+        lv_timer_set_period(frame_timer, 200);
+        return;
+    case PET_STATE_NOD:
+        if (frame_index < current_set->count - 1) {
+            frame_index++;
+            show_frame();
+        } else {
+            state = PET_STATE_IDLE;
+            set_anim(&idle_set);
         }
         return;
     }
@@ -330,6 +370,7 @@ lv_obj_t *pet_create(lv_obj_t *parent)
 {
     idle_set = (anim_set_t){raichu_idle_frames, raichu_idle_durations_ms, raichu_idle_frame_count};
     sit_set = (anim_set_t){raichu_sit_frames, raichu_sit_durations_ms, raichu_sit_frame_count};
+    nod_set = (anim_set_t){raichu_nod_frames, raichu_nod_durations_ms, raichu_nod_frame_count};
     walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
     walk_sets[1] = (anim_set_t){raichu_walk_se_frames, raichu_walk_se_durations_ms, raichu_walk_se_frame_count};
     walk_sets[2] = (anim_set_t){raichu_walk_e_frames, raichu_walk_e_durations_ms, raichu_walk_e_frame_count};
@@ -378,10 +419,79 @@ void pet_notice_steps(uint32_t delta)
     case PET_STATE_STAND_UP:
         stand_up_to_wander = true;
         break;
+    case PET_STATE_TURN_LISTEN:
+    case PET_STATE_LISTENING:
+    case PET_STATE_NOD:
+        /* Listening outranks walking; steps just refresh the timestamp. */
+        break;
     default:
         state = PET_STATE_WANDER;
         pick_new_target();
         lv_timer_resume(move_timer);
         kick_frame_timer();
     }
+}
+
+void pet_listen_start(void)
+{
+    lv_timer_pause(move_timer);
+    called_over = false;
+    switch (state) {
+    case PET_STATE_SIT_DOWN:
+    case PET_STATE_SEATED:
+        /* Stand up first, then turn to listen. */
+        listen_requested = true;
+        state = PET_STATE_STAND_UP;
+        kick_frame_timer();
+        break;
+    case PET_STATE_STAND_UP:
+        listen_requested = true;
+        break;
+    case PET_STATE_TURN_LISTEN:
+    case PET_STATE_LISTENING:
+    case PET_STATE_NOD:
+        break;
+    default:
+        state = PET_STATE_TURN_LISTEN;
+        kick_frame_timer();
+    }
+}
+
+void pet_listen_end(void)
+{
+    listen_requested = false;
+    if (state == PET_STATE_TURN_LISTEN || state == PET_STATE_LISTENING) {
+        state = PET_STATE_NOD;
+        set_anim(&nod_set);
+        kick_frame_timer();
+    }
+}
+
+void pet_call_to(int32_t x, int32_t y)
+{
+    switch (state) {
+    case PET_STATE_WANDER:
+    case PET_STATE_TURN_SOUTH:
+    case PET_STATE_IDLE:
+        break;
+    default:
+        /* Seated or listening: he's busy; ignore the tap. */
+        return;
+    }
+
+    lv_obj_t *parent = lv_obj_get_parent(pet_root);
+    /* Feet sit at the container bottom; aim them at the tapped spot. */
+    float home_x = lv_obj_get_width(parent) / 2.0f;
+    float home_feet_y = lv_obj_get_height(parent) / 2.0f - 12 + lv_obj_get_height(pet_root) / 2.0f;
+    target_x = LV_CLAMP(ROAM_MIN_X, x - home_x, ROAM_MAX_X);
+    target_y = LV_CLAMP(ROAM_MIN_Y, y - home_feet_y, ROAM_MAX_Y);
+    if (hypotf(target_x - pos_x, target_y - pos_y) < 10.0f) return;
+
+    target_facing = heading_row(target_x - pos_x, target_y - pos_y);
+    turn_accum_ms = 0;
+    wander_phase = facing == target_facing ? WANDER_WALKING : WANDER_TURNING;
+    called_over = true;
+    state = PET_STATE_WANDER;
+    lv_timer_resume(move_timer);
+    kick_frame_timer();
 }

@@ -25,6 +25,7 @@ target_link_libraries(lvgl PUBLIC SDL2::SDL2)
 
 add_executable(frolic_sim
     sim/main.c
+    sim/debug_panel.c
     sim/fake_step_source.c
     sim/screenshot.c
     app/frolic_app.c

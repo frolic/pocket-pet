@@ -11,9 +11,11 @@
 #define MUTED_COLOR lv_color_hex(0x3E5844)
 #define RING_TRACK_COLOR lv_color_hex(0x69A862)
 
+static lv_obj_t *panel;
 static lv_obj_t *time_label;
 static lv_obj_t *steps_label;
 static lv_obj_t *goal_arc;
+static lv_obj_t *record_dot;
 
 static void refresh_time(lv_timer_t *timer)
 {
@@ -24,10 +26,25 @@ static void refresh_time(lv_timer_t *timer)
     lv_label_set_text_fmt(time_label, "%02d:%02d", local.tm_hour, local.tm_min);
 }
 
-void watchface_create(void)
+static void field_clicked(lv_event_t *event)
 {
-    lv_obj_t *screen = lv_screen_active();
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    LV_UNUSED(event);
+    lv_indev_t *indev = lv_indev_active();
+    if (indev == NULL) return;
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    lv_area_t area;
+    lv_obj_get_coords(panel, &area);
+    pet_call_to(point.x - area.x1, point.y - area.y1);
+}
+
+void watchface_create(lv_obj_t *parent)
+{
+    panel = parent;
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(panel, field_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *screen = panel;
 
     /* GBA-route grass field. (Costs AMOLED pixels-off battery; it's a pet, worth it.) */
     lv_obj_t *background = lv_image_create(screen);
@@ -80,6 +97,24 @@ void watchface_create(void)
     lv_obj_set_style_text_color(caption, MUTED_COLOR, 0);
     lv_obj_set_style_pad_bottom(caption, 6, 0);
     lv_label_set_text(caption, "steps");
+
+    record_dot = lv_obj_create(screen);
+    lv_obj_remove_style_all(record_dot);
+    lv_obj_set_size(record_dot, 16, 16);
+    lv_obj_set_style_radius(record_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(record_dot, lv_color_hex(0xD93A2F), 0);
+    lv_obj_set_style_bg_opa(record_dot, LV_OPA_COVER, 0);
+    lv_obj_align(record_dot, LV_ALIGN_TOP_RIGHT, -16, 18);
+    lv_obj_add_flag(record_dot, LV_OBJ_FLAG_HIDDEN);
+}
+
+void watchface_set_recording(bool recording)
+{
+    if (recording) {
+        lv_obj_remove_flag(record_dot, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(record_dot, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void watchface_set_steps(uint32_t total)
