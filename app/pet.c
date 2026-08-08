@@ -25,8 +25,16 @@ typedef enum {
     PET_STATE_WANDER,
     PET_STATE_TURN_SOUTH,
     PET_STATE_IDLE,
+    PET_STATE_SIT_BREAK,
     PET_STATE_SITTING,
 } pet_state_t;
+
+/* Idle texture: long rests between bounces, occasional brief sit instead. */
+#define IDLE_REST_MIN_MS 2500
+#define IDLE_REST_MAX_MS 6000
+#define SIT_BREAK_CHANCE_PCT 30
+#define SEATED_HOLD_MIN_MS 2500
+#define SEATED_HOLD_MAX_MS 6000
 
 typedef enum {
     WANDER_TURNING,
@@ -60,6 +68,7 @@ static float pos_x, pos_y = 30.0f;
 static float target_x, target_y;
 static int32_t pause_left_ms;
 static uint32_t turn_accum_ms;
+static int sit_break_direction; /* +1 sitting down, 0 seated hold, -1 standing up */
 
 static void show_frame(void)
 {
@@ -197,7 +206,44 @@ static void advance_frame(lv_timer_t *timer)
             set_anim(&sit_set);
             return;
         }
-        break;
+        if (frame_index == 0) {
+            /* A rest hold just ended: usually bounce, sometimes sit a moment. */
+            if (rand() % 100 < SIT_BREAK_CHANCE_PCT) {
+                state = PET_STATE_SIT_BREAK;
+                sit_break_direction = 1;
+                set_anim(&sit_set);
+                return;
+            }
+            frame_index = 1;
+            show_frame();
+            return;
+        }
+        frame_index = (frame_index + 1) % current_set->count;
+        show_frame();
+        if (frame_index == 0) {
+            lv_timer_set_period(frame_timer,
+                (uint32_t)(IDLE_REST_MIN_MS + rand() % (IDLE_REST_MAX_MS - IDLE_REST_MIN_MS)));
+        }
+        return;
+    case PET_STATE_SIT_BREAK:
+        if (sit_break_direction > 0) {
+            if (frame_index < current_set->count - 1) {
+                frame_index++;
+                show_frame();
+            } else {
+                sit_break_direction = 0;
+                lv_timer_set_period(frame_timer,
+                    (uint32_t)(SEATED_HOLD_MIN_MS + rand() % (SEATED_HOLD_MAX_MS - SEATED_HOLD_MIN_MS)));
+            }
+        } else if (frame_index > 0) {
+            sit_break_direction = -1;
+            frame_index--;
+            show_frame();
+        } else {
+            state = PET_STATE_IDLE;
+            set_anim(&idle_set);
+        }
+        return;
     case PET_STATE_SITTING:
         /* Sit is a sit-down transition: play once, then hold the seated pose. */
         if (frame_index == current_set->count - 1) return;
