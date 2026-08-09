@@ -3,6 +3,7 @@
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include <math.h>
 #include "driver/i2c_master.h"
 #include "lvgl.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
@@ -42,8 +43,6 @@
 static i2c_master_dev_handle_t device;
 static bool ready;
 static int status_code; /* 0 ok; 1 no chip; 2/3 config batch failed */
-static uint32_t cached_steps;
-static uint32_t cached_at_tick;
 
 static esp_err_t write_register(uint8_t reg, uint8_t value)
 {
@@ -157,6 +156,71 @@ static bool pedometer_init(void)
 }
 
 /*
+ * Software step detector. The QMI8658's on-die pedometer engine never
+ * produced a count on this board even with verified-executed configuration
+ * (CTRL9 handshake confirmed, reference thresholds), so steps are detected
+ * here instead: 25Hz accel magnitude, EMA gravity baseline, positive-peak
+ * detection gated to walking cadence, and an entry filter so lone bumps
+ * don't count. The hardware counter is still read in diagnostics for
+ * comparison should a future silicon revision start working.
+ */
+
+/* 4G range: 8192 counts per g. */
+#define SW_SAMPLE_MS 40
+#define SW_PEAK_THRESHOLD 900.0f    /* ~0.11g above baseline */
+#define SW_MIN_STEP_MS 280          /* max cadence ~3.5 steps/s */
+#define SW_MAX_STEP_MS 1000         /* min cadence 1 step/s */
+#define SW_ENTRY_STEPS 4
+#define SW_RESET_GAP_MS 1400
+
+static volatile uint32_t sw_steps;
+
+static void step_detect_task(void *arg)
+{
+    (void)arg;
+    float baseline = 8192.0f;
+    bool above = false;
+    uint32_t last_peak_ms = 0;
+    int entry_run = 0;
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(SW_SAMPLE_MS));
+        if (!ready) continue;
+        uint8_t buffer[6];
+        if (read_registers(0x35, buffer, 6) != ESP_OK) continue;
+        int16_t ax = (int16_t)(buffer[0] | (buffer[1] << 8));
+        int16_t ay = (int16_t)(buffer[2] | (buffer[3] << 8));
+        int16_t az = (int16_t)(buffer[4] | (buffer[5] << 8));
+        float magnitude = sqrtf((float)ax * ax + (float)ay * ay + (float)az * az);
+        baseline += 0.05f * (magnitude - baseline);
+        float deviation = magnitude - baseline;
+        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+
+        if (entry_run > 0 && now - last_peak_ms > SW_RESET_GAP_MS) {
+            entry_run = 0;
+        }
+        if (!above && deviation > SW_PEAK_THRESHOLD) {
+            above = true;
+            uint32_t gap = now - last_peak_ms;
+            if (gap >= SW_MIN_STEP_MS && gap <= SW_MAX_STEP_MS) {
+                if (entry_run < SW_ENTRY_STEPS) {
+                    entry_run++;
+                    if (entry_run == SW_ENTRY_STEPS) {
+                        sw_steps += SW_ENTRY_STEPS; /* credit the run-up */
+                    }
+                } else {
+                    sw_steps++;
+                }
+            } else {
+                entry_run = 1; /* rhythm broken: this peak starts a new run */
+            }
+            last_peak_ms = now;
+        } else if (above && deviation < SW_PEAK_THRESHOLD * 0.5f) {
+            above = false;
+        }
+    }
+}
+
+/*
  * Flight recorder: raw accel + step count sampled at 4Hz into a PSRAM ring
  * (~34 min), surviving USB unplug on battery. 'd' on the console dumps the
  * ring; 'z' clears it. Debug aid while step detection is being tuned.
@@ -231,6 +295,7 @@ static void flight_recorder_start(void)
     }
     xTaskCreate(flight_sample_task, "flight", 3072, NULL, 3, NULL);
     xTaskCreate(flight_console_task, "flightcon", 3072, NULL, 2, NULL);
+    xTaskCreate(step_detect_task, "stepdet", 3072, NULL, 4, NULL);
 }
 
 int step_source_status(void)
@@ -248,35 +313,18 @@ uint32_t step_source_total(void)
     }
     if (!ready) return 0;
 
-    /* The counter registers update every 4 steps; polling faster than 500ms
-       just burns i2c traffic. */
-    if (cached_at_tick != 0 && lv_tick_elaps(cached_at_tick) < 500) {
-        return cached_steps;
-    }
-    uint8_t buffer[3];
-    if (read_registers(REG_STEP_CNT_LOW, buffer, 3) == ESP_OK) {
-        cached_steps = ((uint32_t)buffer[2] << 16) | ((uint32_t)buffer[1] << 8) | buffer[0];
-        cached_at_tick = lv_tick_get();
-    }
 
     /* Temporary diagnostics: prove the accel is sampling and the pedometer
        engine is enabled. Remove once step counting is confirmed. */
     static uint32_t last_dump_tick;
     if (lv_tick_elaps(last_dump_tick) > 2000) {
         last_dump_tick = lv_tick_get();
-        uint8_t ctrl[8] = {0};
-        uint8_t status0 = 0;
-        uint8_t accel[6] = {0};
-        read_registers(REG_CTRL1, ctrl, 8);      /* CTRL1..CTRL8 = 0x02..0x09 */
-        read_registers(0x2E, &status0, 1);       /* STATUS0: data-ready bits */
-        read_registers(0x35, accel, 6);          /* AX_L..AZ_H */
-        int16_t ax = (int16_t)(accel[0] | (accel[1] << 8));
-        int16_t ay = (int16_t)(accel[2] | (accel[3] << 8));
-        int16_t az = (int16_t)(accel[4] | (accel[5] << 8));
-        printf("qmi-dbg ctrl2=%02x ctrl7=%02x ctrl8=%02x status0=%02x "
-               "accel=%d,%d,%d steps=%lu\n",
-               ctrl[1], ctrl[6], ctrl[7], status0,
-               ax, ay, az, (unsigned long)cached_steps);
+        uint8_t hw_count[3] = {0};
+        read_registers(REG_STEP_CNT_LOW, hw_count, 3);
+        printf("qmi-dbg sw_steps=%lu hw_steps=%lu\n",
+               (unsigned long)sw_steps,
+               (unsigned long)(((uint32_t)hw_count[2] << 16) |
+                               ((uint32_t)hw_count[1] << 8) | hw_count[0]));
     }
-    return cached_steps;
+    return sw_steps;
 }
