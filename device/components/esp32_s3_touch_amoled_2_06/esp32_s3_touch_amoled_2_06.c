@@ -533,9 +533,11 @@ static lv_display_t *bsp_display_lcd_init()
         .flags = {
             .sw_rotate = true,
             .buff_dma = false,
-#if CONFIG_BSP_DISPLAY_LVGL_PSRAM
-            .buff_spiram = false,
-#endif
+            /* Vendored change: draw buffer in PSRAM. Internal RAM is the
+               scarce resource once wifi AP+STA run (12KB min observed);
+               heap exhaustion there starves SPI transactions (dropped
+               flushes). S3 GDMA reads PSRAM fine. */
+            .buff_spiram = true,
 #if CONFIG_BSP_DISPLAY_LVGL_FULL_REFRESH
             .full_refresh = 1,
 #elif CONFIG_BSP_DISPLAY_LVGL_DIRECT_MODE

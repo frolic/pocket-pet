@@ -206,9 +206,9 @@ static const char PORTAL_TAIL[] =
 
 static const char TESTING_PAGE[] =
     "<!DOCTYPE html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<title>testing</title></head><body style='font-family:sans-serif;background:#88c878;"
-    "text-align:center;padding-top:80px;'><h1>&#9889; Testing...</h1>"
-    "<p id=m>Raichu is trying your wifi. Hold on.</p>"
+    "<title>connecting</title></head><body style='font-family:sans-serif;background:#88c878;"
+    "text-align:center;padding-top:80px;'><h1>&#9889; Connecting...</h1>"
+    "<p id=m>Raichu is connecting to your wifi. Hold on.</p>"
     "<script>function poll(){fetch('/status').then(r=>r.text()).then(t=>{"
     "if(t=='ok'){document.getElementById('m').textContent="
     "'Connected! Raichu is rebooting onto your wifi.';}"
@@ -354,7 +354,7 @@ static void portal_start(void)
     xTaskCreate(dns_hijack_task, "dns_hijack", 4096, NULL, 5, NULL);
 
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
-    server_config.stack_size = 10240;
+    server_config.stack_size = 8192;
     server_config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_handle_t server = NULL;
     ESP_ERROR_CHECK(httpd_start(&server, &server_config));
