@@ -12,7 +12,7 @@
  * QMI8658 hardware pedometer. Register sequences ported from lewisxhe's
  * SensorLib (MIT) QMI8658 pedometer support. Thresholds follow its example's
  * bring-up profile (the datasheet walking profile rejects nearly everything):
- * 2G @ 62.5Hz, 80mg peak-to-peak, 60mg peak, 4-step entry filter.
+ * 4G @ 125Hz, 80mg peak-to-peak, 60mg peak, 4-step entry filter.
  */
 
 #define QMI_ADDRESS_PRIMARY 0x6B
@@ -41,6 +41,7 @@
 
 static i2c_master_dev_handle_t device;
 static bool ready;
+static int status_code; /* 0 ok; 1 no chip; 2/3 config batch failed */
 static uint32_t cached_steps;
 static uint32_t cached_at_tick;
 
@@ -111,15 +112,19 @@ static bool pedometer_init(void)
     bsp_i2c_init();
     if (!probe(QMI_ADDRESS_PRIMARY) && !probe(QMI_ADDRESS_SECONDARY)) {
         printf("qmi8658: not found on i2c bus\n");
+        status_code = 1;
         return false;
     }
+    uint8_t revision = 0;
+    read_registers(0x01, &revision, 1);
+    printf("qmi8658: revision=0x%02x\n", revision);
 
     write_register(REG_RESET, 0xB0);
     vTaskDelay(pdMS_TO_TICKS(20));
 
     write_register(REG_CTRL1, 0x40); /* register address auto-increment */
     write_register(REG_CTRL8, 0x80); /* CTRL9 handshake via STATUS_INT.7 */
-    write_register(REG_CTRL2, 0x07); /* accel 2G range, 62.5Hz ODR */
+    write_register(REG_CTRL2, 0x16); /* accel 4G range, 125Hz ODR */
 
     /* Pedometer configuration, two CAL-register batches (SensorLib recipe). */
     write_register(REG_CAL1_L, 50);   /* sample window */
@@ -140,7 +145,7 @@ static bool pedometer_init(void)
     write_register(REG_CAL3_H, 1);    /* significant-step interval */
     write_register(REG_CAL4_H, 0x02);
     write_register(REG_CAL4_L, 0x02);
-    if (!run_command(COMMAND_CONFIGURE_PEDOMETER)) return false;
+    if (!run_command(COMMAND_CONFIGURE_PEDOMETER)) { status_code = 3; return false; }
 
     write_register(REG_CTRL7, 0x01);  /* accelerometer on */
     uint8_t ctrl8 = 0;
@@ -226,6 +231,11 @@ static void flight_recorder_start(void)
     }
     xTaskCreate(flight_sample_task, "flight", 3072, NULL, 3, NULL);
     xTaskCreate(flight_console_task, "flightcon", 3072, NULL, 2, NULL);
+}
+
+int step_source_status(void)
+{
+    return status_code;
 }
 
 uint32_t step_source_total(void)

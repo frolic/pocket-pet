@@ -32,3 +32,8 @@ uint32_t step_source_total(void)
 {
     return total_steps;
 }
+
+int step_source_status(void)
+{
+    return 0;
+}
