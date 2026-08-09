@@ -1,0 +1,11 @@
+# 16MB flash, OTA-ready from the first USB flash:
+# factory will hold the future base app (wifi provisioning + updater);
+# for now the pet firmware boots from it. ota_0/ota_1 receive OTA builds.
+# Name,     Type, SubType, Offset,   Size,
+nvs,        data, nvs,     0x9000,   0x6000,
+otadata,    data, ota,     0xf000,   0x2000,
+phy_init,   data, phy,     0x11000,  0x1000,
+factory,    app,  factory, 0x20000,  2M,
+ota_0,      app,  ota_0,   ,         4M,
+ota_1,      app,  ota_1,   ,         4M,
+storage,    data, spiffs,  ,         5632K,
