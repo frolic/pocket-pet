@@ -4,7 +4,7 @@ idf_component_register(
         "device_wifi.c"
         "device_debug.c"
         "device_button_source.c"
-        "device_power_button.c"
+        "device_axp2101.c"
         "device_step_source.c"
         "../../app/frolic_app.c"
         "../../app/watchface.c"

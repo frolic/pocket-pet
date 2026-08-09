@@ -18,3 +18,6 @@ void watchface_set_recording(bool recording);
 
 /* Shows a centered status banner (e.g. "WIFI SETUP"), or hides it with NULL. */
 void watchface_set_banner(const char *text);
+
+/* Battery indicator (top right). percent < 0 hides it. */
+void watchface_set_battery(int percent, bool charging);

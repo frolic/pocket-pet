@@ -27,6 +27,7 @@ add_executable(frolic_sim
     sim/main.c
     sim/debug_panel.c
     sim/fake_step_source.c
+    sim/fake_battery_source.c
     sim/screenshot.c
     app/frolic_app.c
     app/watchface.c

@@ -31,6 +31,16 @@ static lv_obj_t *name_text;
 static lv_obj_t *right_text;
 static lv_obj_t *exp_fill;
 static lv_obj_t *record_dot;
+static lv_obj_t *battery_root;
+static lv_obj_t *battery_fill;
+
+/* Battery icon in HUD art-pixels (PX=4 screen px each): 9x5 body + 1x3 nub. */
+#define BATTERY_PX 4
+#define BATTERY_FILL_MAX_PX 7
+#define BATTERY_OUTLINE_COLOR lv_color_hex(0x202020)
+#define BATTERY_OK_COLOR lv_color_hex(0xF8F8F8)
+#define BATTERY_LOW_COLOR lv_color_hex(0xE04838)
+#define BATTERY_CHARGE_COLOR lv_color_hex(0x58C858)
 static lv_obj_t *banner_shadow;
 static lv_obj_t *banner_text;
 static lv_timer_t *daily_revert_timer;
@@ -169,8 +179,54 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_set_size(record_dot, 18, 18);
     lv_obj_set_style_bg_color(record_dot, RECORD_COLOR, 0);
     lv_obj_set_style_bg_opa(record_dot, LV_OPA_COVER, 0);
-    lv_obj_align(record_dot, LV_ALIGN_TOP_RIGHT, -14, 14);
+    lv_obj_align(record_dot, LV_ALIGN_TOP_RIGHT, -72, 19);
     lv_obj_add_flag(record_dot, LV_OBJ_FLAG_HIDDEN);
+
+    /* Battery: outlined body with a nub, level bar inside. Flat siblings in
+       a borderless container — LVGL offsets children by parent border width,
+       so the border lives on a leaf object instead. */
+    battery_root = lv_obj_create(screen);
+    lv_obj_remove_style_all(battery_root);
+    lv_obj_set_size(battery_root, 10 * BATTERY_PX, 5 * BATTERY_PX);
+    lv_obj_align(battery_root, LV_ALIGN_TOP_RIGHT, -20, 18);
+    lv_obj_add_flag(battery_root, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *battery_body = lv_obj_create(battery_root);
+    lv_obj_remove_style_all(battery_body);
+    lv_obj_set_size(battery_body, 9 * BATTERY_PX, 5 * BATTERY_PX);
+    lv_obj_set_style_border_color(battery_body, BATTERY_OUTLINE_COLOR, 0);
+    lv_obj_set_style_border_width(battery_body, BATTERY_PX, 0);
+    lv_obj_set_pos(battery_body, 0, 0);
+
+    lv_obj_t *battery_nub = lv_obj_create(battery_root);
+    lv_obj_remove_style_all(battery_nub);
+    lv_obj_set_size(battery_nub, BATTERY_PX, 3 * BATTERY_PX);
+    lv_obj_set_style_bg_color(battery_nub, BATTERY_OUTLINE_COLOR, 0);
+    lv_obj_set_style_bg_opa(battery_nub, LV_OPA_COVER, 0);
+    lv_obj_set_pos(battery_nub, 9 * BATTERY_PX, BATTERY_PX);
+
+    battery_fill = lv_obj_create(battery_root);
+    lv_obj_remove_style_all(battery_fill);
+    lv_obj_set_size(battery_fill, BATTERY_PX, 3 * BATTERY_PX);
+    lv_obj_set_style_bg_color(battery_fill, BATTERY_OK_COLOR, 0);
+    lv_obj_set_style_bg_opa(battery_fill, LV_OPA_COVER, 0);
+    lv_obj_set_pos(battery_fill, BATTERY_PX, BATTERY_PX);
+}
+
+void watchface_set_battery(int percent, bool charging)
+{
+    if (percent < 0) {
+        lv_obj_add_flag(battery_root, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(battery_root, LV_OBJ_FLAG_HIDDEN);
+    int fill_px = (percent * BATTERY_FILL_MAX_PX + 50) / 100;
+    if (fill_px < 1) fill_px = 1;
+    lv_obj_set_width(battery_fill, fill_px * BATTERY_PX);
+    lv_color_t color = charging ? BATTERY_CHARGE_COLOR
+                     : percent <= 20 ? BATTERY_LOW_COLOR
+                     : BATTERY_OK_COLOR;
+    lv_obj_set_style_bg_color(battery_fill, color, 0);
 }
 
 void watchface_set_steps(uint32_t total)

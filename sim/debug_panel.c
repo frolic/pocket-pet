@@ -1,6 +1,7 @@
 #include "lvgl.h"
 #include "debug_panel.h"
 #include "fake_step_source.h"
+#include "fake_battery_source.h"
 #include "../app/button_source.h"
 #include "../app/power_button.h"
 #include "../app/pet.h"
@@ -33,6 +34,12 @@ bool power_button_pressed(void)
     bool pressed = power_pressed;
     power_pressed = false;
     return pressed;
+}
+
+static void battery_clicked(lv_event_t *event)
+{
+    LV_UNUSED(event);
+    fake_battery_source_cycle();
 }
 
 static void celebrate_clicked(lv_event_t *event)
@@ -80,6 +87,9 @@ void debug_panel_create(lv_obj_t *parent)
 
     lv_obj_t *steps_button = make_button(rail, "+2500 steps");
     lv_obj_add_event_cb(steps_button, steps_clicked, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *battery_button = make_button(rail, "Battery");
+    lv_obj_add_event_cb(battery_button, battery_clicked, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *shock_button = make_button(rail, "Shock");
     lv_obj_add_event_cb(shock_button, celebrate_clicked, LV_EVENT_CLICKED,

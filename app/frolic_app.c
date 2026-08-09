@@ -1,6 +1,7 @@
 #include "lvgl.h"
 #include "frolic_app.h"
 #include "button_source.h"
+#include "battery_source.h"
 #include "display_sleep.h"
 #include "power_button.h"
 #include "game_config.h"
@@ -10,6 +11,12 @@
 
 static uint32_t last_total;
 static bool button_was_held;
+
+static void poll_battery(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    watchface_set_battery(battery_source_percent(), battery_source_charging());
+}
 
 static void poll_steps(lv_timer_t *timer)
 {
@@ -77,6 +84,7 @@ void frolic_app_init(lv_obj_t *parent)
     watchface_create(parent);
     watchface_set_steps(step_source_total());
     lv_timer_create(poll_steps, 400, NULL);
+    lv_timer_ready(lv_timer_create(poll_battery, 30000, NULL));
     lv_timer_create(poll_button, 50, NULL);
     lv_timer_create(poll_power_button, 150, NULL);
     display_sleep_init(10000);
