@@ -434,10 +434,7 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
                                                                  config->max_transfer_sz);
     ESP_ERROR_CHECK(spi_bus_initialize(BSP_LCD_SPI_NUM, &buscfg, SPI_DMA_CH_AUTO));
 
-    esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS, NULL, NULL);
-    /* Vendored change: the stock 40MHz QSPI clock has no signal margin once
-       the wifi radio runs — flushes corrupt (ghost frames, banding). */
-    io_config.pclk_hz = 20 * 1000 * 1000;
+    const esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS, NULL, NULL);
 
     sh8601_vendor_config_t vendor_config = {
         .init_cmds = lcd_init_cmds,

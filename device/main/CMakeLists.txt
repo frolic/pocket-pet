@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "device_wifi.c"
+        "device_debug.c"
         "device_button_source.c"
         "device_step_source.c"
         "../../app/frolic_app.c"
@@ -14,7 +15,7 @@ idf_component_register(
         "../../app/sprites/hud_box.c"
         "../../app/sprites/pixel_font.c"
     INCLUDE_DIRS "." "../../app"
-    REQUIRES esp32_s3_touch_amoled_2_06 driver esp_wifi esp_netif esp_event esp_http_server nvs_flash lwip
+    REQUIRES esp32_s3_touch_amoled_2_06 driver esp_timer esp_wifi esp_netif esp_event esp_http_server nvs_flash lwip
 )
 
 if(DEFINED ENV{FROLIC_DISABLE_WIFI})
