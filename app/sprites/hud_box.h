@@ -3,6 +3,8 @@
 
 #include "lvgl.h"
 
+#define HUD_SCALE 6
+
 extern const lv_image_dsc_t *const hud_dialog_box;
 extern const lv_image_dsc_t *const hud_exp_frame;
 

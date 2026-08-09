@@ -4,6 +4,7 @@
 #include "lvgl.h"
 
 #define PIXEL_FONT_HEIGHT 28
+#define PIXEL_FONT_GLYPH_SCALE 4
 
 /* 5x7 glyph sprite (NULL for space/unknown; case-insensitive) and advance. */
 const lv_image_dsc_t *pixel_font_glyph(char c);

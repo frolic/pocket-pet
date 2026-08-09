@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include "pet.h"
+#include "pixel_scale.h"
 #include "sprites/raichu_sprites.h"
 
 /* How long after the last step the pet keeps walking before settling down. */
@@ -99,9 +100,19 @@ static uint32_t celebrate_loops_left;
 
 static void hop(int32_t height);
 
+/* Frames ship native-res and are upscaled on demand into ping-pong scratch
+   buffers (alternating src pointers so LVGL sees every change). */
+static lv_image_dsc_t frame_scratch[2];
+static uint8_t *frame_buffer[2];
+static int frame_scratch_next;
+
 static void show_frame(void)
 {
-    lv_image_set_src(sprite, current_set->frames[frame_index]);
+    int slot = frame_scratch_next;
+    frame_scratch_next ^= 1;
+    pixel_scale_into(current_set->frames[frame_index], RAICHU_SPRITE_SCALE,
+                     &frame_scratch[slot], frame_buffer[slot]);
+    lv_image_set_src(sprite, &frame_scratch[slot]);
     lv_timer_set_period(frame_timer, current_set->durations_ms[frame_index]);
 }
 
@@ -147,7 +158,7 @@ static void face_step_toward(int toward)
     facing = (facing + (plus_steps <= minus_steps ? 1 : 7)) % 8;
     current_set = &walk_sets[facing];
     frame_index = 0;
-    lv_image_set_src(sprite, current_set->frames[0]);
+    show_frame();
 }
 
 static void apply_position(void)
@@ -228,7 +239,7 @@ static void advance_frame(lv_timer_t *timer)
             /* Standing while turning or pausing — hold the standing pose. */
             if (frame_index != 0) {
                 frame_index = 0;
-                lv_image_set_src(sprite, current_set->frames[0]);
+                show_frame();
             }
             lv_timer_set_period(frame_timer, 100);
             return;
@@ -406,6 +417,7 @@ static void sprite_clicked(lv_event_t *event)
     hop(34);
 }
 
+/* Largest native frame across every animation set. */
 static void measure_frames(int32_t *width, int32_t *height)
 {
     const anim_set_t *sets[] = {&idle_set, &sit_set, &nod_set, &pose_set, &shock_set,
@@ -440,14 +452,23 @@ lv_obj_t *pet_create(lv_obj_t *parent)
 
     pet_root = lv_obj_create(parent);
     lv_obj_remove_style_all(pet_root);
-    int32_t width, height;
-    measure_frames(&width, &height);
+    int32_t native_width, native_height;
+    measure_frames(&native_width, &native_height);
+    int32_t width = native_width * RAICHU_SPRITE_SCALE;
+    int32_t height = native_height * RAICHU_SPRITE_SCALE;
     /* Sized to the largest animation (plus hop headroom) so nothing ever clips,
        anchored by the feet so canvas growth (e.g. Shock's bolts) never moves him. */
     lv_obj_set_size(pet_root, width, height + HOP_HEADROOM);
     lv_obj_align(pet_root, LV_ALIGN_TOP_MID, 0, PET_FEET_Y - (height + HOP_HEADROOM));
     lv_obj_remove_flag(pet_root, LV_OBJ_FLAG_SCROLLABLE);
     apply_position();
+
+    size_t scratch_size = (size_t)native_width * native_height *
+                          RAICHU_SPRITE_SCALE * RAICHU_SPRITE_SCALE * 4;
+    frame_buffer[0] = malloc(scratch_size);
+    frame_buffer[1] = malloc(scratch_size);
+    LV_ASSERT_NULL(frame_buffer[0]);
+    LV_ASSERT_NULL(frame_buffer[1]);
 
     sprite = lv_image_create(pet_root);
     lv_obj_align(sprite, LV_ALIGN_BOTTOM_MID, 0, 0);

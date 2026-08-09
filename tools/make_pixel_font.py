@@ -67,7 +67,7 @@ def glyph_image(rows: list) -> Image.Image:
         for x, cell in enumerate(row):
             if cell == "X":
                 pixels[x, y] = INK
-    return image.resize((5 * PIXEL_SIZE, 7 * PIXEL_SIZE), Image.NEAREST)
+    return image  # native 5x7; runtime scales by PIXEL_FONT_GLYPH_SCALE
 
 
 def main() -> None:
@@ -111,6 +111,7 @@ def main() -> None:
         '#include "lvgl.h"',
         "",
         f"#define PIXEL_FONT_HEIGHT {7 * PIXEL_SIZE}",
+        f"#define PIXEL_FONT_GLYPH_SCALE {PIXEL_SIZE}",
         "",
         "/* 5x7 glyph sprite (NULL for space/unknown; case-insensitive) and advance. */",
         "const lv_image_dsc_t *pixel_font_glyph(char c);",

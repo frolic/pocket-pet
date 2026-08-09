@@ -3,6 +3,8 @@
 
 #include "lvgl.h"
 
+#define RAICHU_SPRITE_SCALE 6
+
 extern const lv_image_dsc_t *const raichu_idle_frames[];
 extern const uint32_t raichu_idle_durations_ms[];
 extern const uint32_t raichu_idle_frame_count;

@@ -30,7 +30,7 @@ def pixel_rounded_rect(size: tuple, radius: int, fill: tuple, outline: tuple) ->
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle([0, 0, size[0] - 1, size[1] - 1],
                            radius=radius, fill=fill, outline=outline, width=1)
-    return image.resize((size[0] * PIXEL_SIZE, size[1] * PIXEL_SIZE), Image.NEAREST)
+    return image  # native logical pixels; runtime scales by HUD_SCALE
 
 
 def main() -> None:
@@ -53,6 +53,8 @@ def main() -> None:
         "#pragma once",
         "",
         '#include "lvgl.h"',
+        "",
+        f"#define HUD_SCALE {PIXEL_SIZE}",
         "",
         "extern const lv_image_dsc_t *const hud_dialog_box;",
         "extern const lv_image_dsc_t *const hud_exp_frame;",

@@ -1,5 +1,20 @@
+#include "pixel_scale.h"
 #include "pixel_text.h"
 #include "sprites/pixel_font.h"
+
+/* Glyphs ship native; each is upscaled once on first use and cached. */
+static const lv_image_dsc_t *scaled_glyph(char c)
+{
+    static const lv_image_dsc_t *cache[128];
+    unsigned char index = (unsigned char)c;
+    if (index >= 128) return NULL;
+    if (cache[index] == NULL) {
+        const lv_image_dsc_t *native = pixel_font_glyph(c);
+        if (native == NULL) return NULL;
+        cache[index] = pixel_scale_image(native, PIXEL_FONT_GLYPH_SCALE);
+    }
+    return cache[index];
+}
 
 static void apply_color(lv_obj_t *text_row, lv_obj_t *image)
 {
@@ -35,7 +50,7 @@ void pixel_text_set(lv_obj_t *text_row, const char *text)
     lv_obj_clean(text_row);
     int32_t x = 0;
     for (const char *c = text; *c != '\0'; c++) {
-        const lv_image_dsc_t *glyph = pixel_font_glyph(*c);
+        const lv_image_dsc_t *glyph = scaled_glyph(*c);
         if (glyph != NULL) {
             lv_obj_t *image = lv_image_create(text_row);
             lv_image_set_src(image, glyph);

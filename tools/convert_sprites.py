@@ -136,12 +136,9 @@ def main() -> None:
     for anim in anims:
         lower = anim["name"].lower()
         left, top, right, bottom = anim["bbox"]
-        frames = [
-            frame.crop(anim["bbox"]).resize(
-                ((right - left) * scale, (bottom - top) * scale), Image.NEAREST
-            )
-            for frame in anim["frames"]
-        ]
+        # Native resolution: the runtime scales with antialiasing off (nearest),
+        # keeping binaries ~scale^2 smaller — critical for the device app slot.
+        frames = [frame.crop(anim["bbox"]) for frame in anim["frames"]]
         meta = anim["meta"]
 
         for index, frame in enumerate(frames):
@@ -159,8 +156,10 @@ def main() -> None:
         h_out.append(f"extern const uint32_t {prefix}_{lower}_frame_count;")
         h_out.append("")
 
-        print(f"{anim['name']}: {len(frames)} frames {frames[0].width}x{frames[0].height} (scale {scale}x)")
+        print(f"{anim['name']}: {len(frames)} frames {frames[0].width}x{frames[0].height} native (display scale {scale}x)")
 
+    h_out.insert(5, f"#define {prefix.upper()}_SPRITE_SCALE {scale}")
+    h_out.insert(6, "")
     (out_dir / f"{prefix}_sprites.c").write_text("\n".join(c_out) + "\n")
     (out_dir / f"{prefix}_sprites.h").write_text("\n".join(h_out) + "\n")
 

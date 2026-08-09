@@ -4,6 +4,7 @@
 #include "watchface.h"
 #include "pet.h"
 #include "game_config.h"
+#include "pixel_scale.h"
 #include "pixel_text.h"
 #include "sprites/field_bg.h"
 #include "sprites/hud_box.h"
@@ -109,9 +110,10 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_add_event_cb(panel, field_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *screen = panel;
 
-    /* GBA-route grass field. (Costs AMOLED pixels-off battery; it's a pet, worth it.) */
+    /* GBA-route grass field. (Costs AMOLED pixels-off battery; it's a pet, worth it.)
+       Assets ship native and are upscaled once into RAM at startup. */
     lv_obj_t *background = lv_image_create(screen);
-    lv_image_set_src(background, field_bg);
+    lv_image_set_src(background, pixel_scale_image(field_bg, FIELD_BG_SCALE));
 
     /* Overworld-sign style clock: white with a one-font-pixel black shadow. */
     time_shadow = pixel_text_create(screen);
@@ -132,7 +134,7 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *box_frame = lv_image_create(box);
-    lv_image_set_src(box_frame, hud_dialog_box);
+    lv_image_set_src(box_frame, pixel_scale_image(hud_dialog_box, HUD_SCALE));
 
     name_text = pixel_text_create(box);
     lv_obj_set_pos(name_text, BOX_PAD, TEXT_Y);
@@ -144,7 +146,7 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_add_event_cb(box, box_clicked, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *exp_bar = lv_image_create(box);
-    lv_image_set_src(exp_bar, hud_exp_frame);
+    lv_image_set_src(exp_bar, pixel_scale_image(hud_exp_frame, HUD_SCALE));
     lv_obj_set_pos(exp_bar, (BOX_WIDTH - EXP_BAR_WIDTH) / 2, EXP_BAR_Y);
 
     exp_fill = lv_obj_create(box);
