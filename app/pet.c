@@ -55,8 +55,6 @@ typedef enum {
     PET_STATE_WAKING,         /* the stretch-and-stand Wake sequence */
 } pet_state_t;
 
-/* Quiet this long while idle before he settles down to sleep. */
-#define SLEEP_QUIET_MS 45000
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
 #define IDLE_REST_MIN_MS 2500
@@ -290,11 +288,6 @@ static void advance_frame(lv_timer_t *timer)
         lv_timer_set_period(frame_timer, TURN_STEP_MS);
         return;
     case PET_STATE_IDLE:
-        if (lv_tick_elaps(quiet_anchor) > SLEEP_QUIET_MS) {
-            state = PET_STATE_TURN_SLEEP;
-            lv_timer_set_period(frame_timer, TURN_STEP_MS);
-            return;
-        }
         if (frame_index == 0) {
             /* A rest hold just ended: usually bounce, sometimes sit a moment
                (but never within a few seconds of arriving in idle). */
@@ -621,6 +614,28 @@ void pet_freeze(bool frozen)
         lv_timer_resume(frame_timer);
         if (state == PET_STATE_WANDER) lv_timer_resume(move_timer);
     }
+}
+
+void pet_sleep_now(void)
+{
+    switch (state) {
+    case PET_STATE_TURN_LISTEN:
+    case PET_STATE_LISTENING:
+    case PET_STATE_ACK_NOD:
+    case PET_STATE_TURN_SLEEP:
+    case PET_STATE_LIE_DOWN:
+    case PET_STATE_SLEEPING:
+        return;
+    default:
+        lv_timer_pause(move_timer);
+        state = PET_STATE_TURN_SLEEP;
+        kick_frame_timer();
+    }
+}
+
+bool pet_is_sleeping(void)
+{
+    return state == PET_STATE_SLEEPING;
 }
 
 void pet_set_paused(bool paused)

@@ -32,3 +32,9 @@ void pet_set_paused(bool paused);
 
 /* Suspends animation without changing state — used while the screen sleeps. */
 void pet_freeze(bool frozen);
+
+/* Begins the bedtime chain (turn, lie down, curl up) if he's free to. */
+void pet_sleep_now(void);
+
+/* True once he's in the curled sleeping loop. */
+bool pet_is_sleeping(void);
