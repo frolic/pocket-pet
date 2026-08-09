@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "driver/i2c_master.h"
 #include "lvgl.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
@@ -53,19 +55,35 @@ static esp_err_t read_registers(uint8_t reg, uint8_t *out, size_t length)
     return i2c_master_transmit_receive(device, &reg, 1, out, length, 100);
 }
 
-/* CTRL9 command protocol: write command, wait for done bit, acknowledge. */
+/* CTRL9 command protocol: write command, wait for the done bit, acknowledge,
+   then wait for it to clear. Requires CTRL8 bit7 (handshake via STATUS_INT)
+   to be set first — without it the done bit idles high and commands are
+   acknowledged before they execute. */
 static bool run_command(uint8_t command)
 {
     if (write_register(REG_CTRL9, command) != ESP_OK) return false;
-    for (int i = 0; i < 200; i++) {
+    bool done = false;
+    for (int i = 0; i < 500 && !done; i++) {
         uint8_t status = 0;
         if (read_registers(REG_STATUS_INT, &status, 1) == ESP_OK && (status & 0x80)) {
-            write_register(REG_CTRL9, COMMAND_ACK);
+            done = true;
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(2));
+        }
+    }
+    if (!done) {
+        printf("qmi8658: command 0x%02x never signalled done\n", command);
+        return false;
+    }
+    if (write_register(REG_CTRL9, COMMAND_ACK) != ESP_OK) return false;
+    for (int i = 0; i < 500; i++) {
+        uint8_t status = 0;
+        if (read_registers(REG_STATUS_INT, &status, 1) == ESP_OK && !(status & 0x80)) {
             return true;
         }
         vTaskDelay(pdMS_TO_TICKS(2));
     }
-    printf("qmi8658: command 0x%02x timed out\n", command);
+    printf("qmi8658: command 0x%02x ack never cleared\n", command);
     return false;
 }
 
@@ -100,6 +118,7 @@ static bool pedometer_init(void)
     vTaskDelay(pdMS_TO_TICKS(20));
 
     write_register(REG_CTRL1, 0x40); /* register address auto-increment */
+    write_register(REG_CTRL8, 0x80); /* CTRL9 handshake via STATUS_INT.7 */
     write_register(REG_CTRL2, 0x07); /* accel 2G range, 62.5Hz ODR */
 
     /* Pedometer configuration, two CAL-register batches (SensorLib recipe). */
@@ -132,12 +151,90 @@ static bool pedometer_init(void)
     return true;
 }
 
+/*
+ * Flight recorder: raw accel + step count sampled at 4Hz into a PSRAM ring
+ * (~34 min), surviving USB unplug on battery. 'd' on the console dumps the
+ * ring; 'z' clears it. Debug aid while step detection is being tuned.
+ */
+typedef struct {
+    uint32_t ms;
+    uint32_t steps;
+    int16_t ax, ay, az;
+} flight_sample_t;
+
+#define FLIGHT_CAPACITY 8192
+static flight_sample_t *flight_ring;
+static volatile uint32_t flight_count;
+
+static void flight_sample_task(void *arg)
+{
+    (void)arg;
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(250));
+        if (!ready) continue;
+        uint8_t sbuf[3] = {0};
+        uint8_t abuf[6] = {0};
+        if (read_registers(REG_STEP_CNT_LOW, sbuf, 3) != ESP_OK) continue;
+        if (read_registers(0x35, abuf, 6) != ESP_OK) continue;
+        flight_sample_t sample = {
+            .ms = (uint32_t)(esp_timer_get_time() / 1000),
+            .steps = ((uint32_t)sbuf[2] << 16) | ((uint32_t)sbuf[1] << 8) | sbuf[0],
+            .ax = (int16_t)(abuf[0] | (abuf[1] << 8)),
+            .ay = (int16_t)(abuf[2] | (abuf[3] << 8)),
+            .az = (int16_t)(abuf[4] | (abuf[5] << 8)),
+        };
+        flight_ring[flight_count % FLIGHT_CAPACITY] = sample;
+        flight_count++;
+    }
+}
+
+static void flight_console_task(void *arg)
+{
+    (void)arg;
+    while (true) {
+        int ch = getchar();
+        if (ch == EOF) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
+        if (ch == 'z') {
+            flight_count = 0;
+            printf("FLIGHT cleared\n");
+        }
+        if (ch != 'd') continue;
+        uint32_t total = flight_count;
+        uint32_t stored = total < FLIGHT_CAPACITY ? total : FLIGHT_CAPACITY;
+        printf("FLIGHT begin total=%lu stored=%lu\n",
+               (unsigned long)total, (unsigned long)stored);
+        for (uint32_t i = total - stored; i < total; i++) {
+            flight_sample_t *s = &flight_ring[i % FLIGHT_CAPACITY];
+            printf("F %lu %lu %d %d %d\n", (unsigned long)s->ms,
+                   (unsigned long)s->steps, s->ax, s->ay, s->az);
+            if ((i & 0x3F) == 0) vTaskDelay(1);
+        }
+        printf("FLIGHT end\n");
+    }
+}
+
+static void flight_recorder_start(void)
+{
+    flight_ring = heap_caps_malloc(FLIGHT_CAPACITY * sizeof(flight_sample_t),
+                                   MALLOC_CAP_SPIRAM);
+    if (flight_ring == NULL) {
+        printf("flight: psram alloc failed\n");
+        return;
+    }
+    xTaskCreate(flight_sample_task, "flight", 3072, NULL, 3, NULL);
+    xTaskCreate(flight_console_task, "flightcon", 3072, NULL, 2, NULL);
+}
+
 uint32_t step_source_total(void)
 {
     static bool init_attempted;
     if (!init_attempted) {
         init_attempted = true;
         ready = pedometer_init();
+        if (ready) flight_recorder_start();
     }
     if (!ready) return 0;
 

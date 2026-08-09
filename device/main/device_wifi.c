@@ -10,6 +10,7 @@
 #include "esp_http_server.h"
 #include "esp_netif.h"
 #include "esp_sntp.h"
+#include "freertos/event_groups.h"
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
@@ -132,6 +133,9 @@ static void restart_task(void *arg)
 
 static int station_failures;
 static bool station_ever_connected;
+static EventGroupHandle_t window_events;
+static volatile bool window_mode;
+#define WINDOW_GOT_IP_BIT BIT0
 
 /* Radio and animation corrupt each other on this board, and normal operation
    doesn't need wifi: once the clock syncs, the radio shuts down entirely.
@@ -164,7 +168,11 @@ static void station_event(void *arg, esp_event_base_t base, int32_t id, void *da
     WIFI_TRACE("station_event base=%s id=%d\n", base == WIFI_EVENT ? "WIFI" : "IP", (int)id);
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_STOP) return;
     if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_START || id == WIFI_EVENT_STA_DISCONNECTED)) {
-        if (id == WIFI_EVENT_STA_DISCONNECTED && station_ever_connected) return;
+        if (id == WIFI_EVENT_STA_DISCONNECTED && station_ever_connected) {
+            /* Mid-window drops retry; outside a window stay quiet. */
+            if (window_mode) esp_wifi_connect();
+            return;
+        }
         if (id == WIFI_EVENT_STA_DISCONNECTED) {
             wifi_event_sta_disconnected_t *event = data;
             printf("device_wifi: disconnected from '%.32s' reason=%d rssi=%d\n",
@@ -195,6 +203,9 @@ static void station_event(void *arg, esp_event_base_t base, int32_t id, void *da
             esp_sntp_init();
         }
         printf("device_wifi: connected to '%s'\n", stored_ssid);
+        if (window_events != NULL) {
+            xEventGroupSetBits(window_events, WINDOW_GOT_IP_BIT);
+        }
     }
 }
 
@@ -438,6 +449,38 @@ static void portal_start(void)
     printf("device_wifi: setup portal at http://%s (join '%s')\n", PORTAL_IP, SETUP_SSID);
     in_portal = true;
     radio_active = true;
+}
+
+/* Sync windows: briefly raise the radio outside the boot sync. The caller
+   owns the window and must end it; the main loop's radio-active handling
+   (pet paused, banner) covers the visuals. */
+bool device_wifi_window_begin(uint32_t timeout_ms)
+{
+    if (in_portal || radio_active || stored_ssid[0] == '\0') return false;
+    if (window_events == NULL) window_events = xEventGroupCreate();
+    xEventGroupClearBits(window_events, WINDOW_GOT_IP_BIT);
+    window_mode = true;
+    if (esp_wifi_start() != ESP_OK) {
+        window_mode = false;
+        return false;
+    }
+    radio_active = true;
+    EventBits_t bits = xEventGroupWaitBits(window_events, WINDOW_GOT_IP_BIT,
+                                           pdFALSE, pdFALSE,
+                                           pdMS_TO_TICKS(timeout_ms));
+    if ((bits & WINDOW_GOT_IP_BIT) == 0) {
+        printf("device_wifi: window connect timed out\n");
+        device_wifi_window_end();
+        return false;
+    }
+    return true;
+}
+
+void device_wifi_window_end(void)
+{
+    esp_wifi_stop();
+    radio_active = false;
+    window_mode = false;
 }
 
 bool device_wifi_in_portal(void)

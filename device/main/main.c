@@ -7,6 +7,7 @@
 #include "bsp/display.h"
 #include "device_debug.h"
 #include "device_wifi.h"
+#include "device_ota.h"
 #include "display_sleep.h"
 #include "frolic_app.h"
 #include "pet.h"
@@ -52,5 +53,6 @@ void app_main(void)
 
 #ifndef FROLIC_DISABLE_WIFI
     device_wifi_start();
+    device_ota_start();
 #endif
 }

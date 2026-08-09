@@ -15,3 +15,8 @@ bool device_wifi_in_portal(void);
 
 /* True while the radio is up (portal, or station until the post-sync stop). */
 bool device_wifi_radio_active(void);
+
+/* Opens a brief radio window (dev OTA / telemetry). True once connected. */
+bool device_wifi_window_begin(uint32_t timeout_ms);
+
+void device_wifi_window_end(void);

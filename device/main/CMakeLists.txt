@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "device_wifi.c"
+        "device_ota.c"
         "device_debug.c"
         "device_button_source.c"
         "device_axp2101.c"
@@ -17,7 +18,7 @@ idf_component_register(
         "../../app/sprites/hud_box.c"
         "../../app/sprites/pixel_font.c"
     INCLUDE_DIRS "." "../../app"
-    REQUIRES esp32_s3_touch_amoled_2_06 driver esp_timer esp_wifi esp_netif esp_event esp_http_server nvs_flash lwip
+    REQUIRES esp32_s3_touch_amoled_2_06 driver esp_timer esp_wifi esp_netif esp_event esp_http_server esp_http_client esp_https_ota app_update nvs_flash lwip
 )
 
 if(DEFINED ENV{FROLIC_DISABLE_WIFI})
@@ -26,4 +27,8 @@ endif()
 
 if(DEFINED ENV{FROLIC_DEBUG})
     target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_DEBUG=1)
+endif()
+
+if(DEFINED ENV{FROLIC_OTA_URL})
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_OTA_URL="$ENV{FROLIC_OTA_URL}")
 endif()
