@@ -8,11 +8,12 @@
 #define WALK_LINGER_MS 2500
 /* Continued quiet after settling before he sits down. */
 #define SIT_AFTER_MS 20000
-/* Rectangle the pet roams, as translate offsets from his home position. */
-#define ROAM_MIN_X (-115)
-#define ROAM_MAX_X 115
-#define ROAM_MIN_Y (-60)
-#define ROAM_MAX_Y 70
+/* Rectangle the pet roams, as translate offsets from his home position.
+   X reaches the panel edges: up to half his body can leave the frame. */
+#define ROAM_MIN_X (-200)
+#define ROAM_MAX_X 200
+#define ROAM_MIN_Y (-80)
+#define ROAM_MAX_Y 80
 #define MIN_LEG_PX 60
 #define WALK_SPEED_PX_S 70
 #define MOVE_TICK_MS 33
@@ -42,7 +43,9 @@ typedef enum {
     PET_STATE_STAND_UP,
     PET_STATE_TURN_LISTEN,    /* record button held: turn to face the viewer... */
     PET_STATE_LISTENING,      /* ...and nod along while they speak */
-    PET_STATE_CELEBRATE,      /* recording done: a happy flourish, then idle */
+    PET_STATE_ACK_NOD,        /* recording done: two deliberate nods... */
+    PET_STATE_CELEBRATE,      /* ...then the happy flourish... */
+    PET_STATE_STAND_WAIT,     /* ...then stand quietly a moment before moving on */
     PET_STATE_TURN_CELEBRATE, /* milestone hit: turn to face the viewer... */
     PET_STATE_CELEBRATE_PLAY, /* ...and play the celebration animation */
 } pet_state_t;
@@ -97,6 +100,7 @@ static bool listen_requested;   /* record button held while mid-stand-up */
 static bool called_over;        /* walking to a tapped spot — don't settle mid-leg */
 static pet_celebration_t celebration_kind;
 static uint32_t celebrate_loops_left;
+static uint32_t ack_nods_left;
 
 static void hop(int32_t height);
 
@@ -342,15 +346,34 @@ static void advance_frame(lv_timer_t *timer)
             lv_timer_set_period(frame_timer, 500 + (uint32_t)(rand() % 800));
         }
         return;
+    case PET_STATE_ACK_NOD:
+        frame_index++;
+        if (frame_index >= current_set->count) {
+            if (--ack_nods_left == 0) {
+                state = PET_STATE_CELEBRATE;
+                set_anim(&pose_set);
+                lv_timer_reset(frame_timer);
+                hop(24);
+                return;
+            }
+            frame_index = 0;
+        }
+        show_frame();
+        return;
     case PET_STATE_CELEBRATE:
         if (frame_index < current_set->count - 1) {
             frame_index++;
             show_frame();
         } else {
-            state = PET_STATE_IDLE;
+            /* Stand quietly for a beat before going back to his day. */
+            state = PET_STATE_STAND_WAIT;
             set_anim(&idle_set);
-            lv_timer_reset(frame_timer);
+            lv_timer_set_period(frame_timer, 1700);
         }
+        return;
+    case PET_STATE_STAND_WAIT:
+        state = PET_STATE_IDLE;
+        lv_timer_set_period(frame_timer, 100);
         return;
     case PET_STATE_TURN_CELEBRATE:
         if (facing == FACING_SOUTH) {
@@ -502,7 +525,9 @@ void pet_notice_steps(uint32_t delta)
         break;
     case PET_STATE_TURN_LISTEN:
     case PET_STATE_LISTENING:
+    case PET_STATE_ACK_NOD:
     case PET_STATE_CELEBRATE:
+    case PET_STATE_STAND_WAIT:
     case PET_STATE_TURN_CELEBRATE:
     case PET_STATE_CELEBRATE_PLAY:
         /* Attention interactions outrank walking; steps refresh the timestamp. */
@@ -550,6 +575,8 @@ void pet_listen_start(void)
         break;
     case PET_STATE_TURN_LISTEN:
     case PET_STATE_LISTENING:
+    case PET_STATE_ACK_NOD:
+    case PET_STATE_CELEBRATE:
         break;
     default:
         state = PET_STATE_TURN_LISTEN;
@@ -565,11 +592,11 @@ void pet_listen_end(void)
         state = PET_STATE_TURN_SOUTH;
         lv_timer_set_period(frame_timer, TURN_STEP_MS);
     } else if (state == PET_STATE_LISTENING) {
-        /* Thanks-for-sharing flourish: strike the pose with a happy hop. */
-        state = PET_STATE_CELEBRATE;
-        set_anim(&pose_set);
+        /* Outro: two deliberate nods, then the flourish (see ACK_NOD chain). */
+        state = PET_STATE_ACK_NOD;
+        ack_nods_left = 2;
+        set_anim(&nod_set);
         lv_timer_reset(frame_timer);
-        hop(24);
     }
 }
 
