@@ -714,6 +714,6 @@ const lv_image_dsc_t *pixel_font_glyph(char c)
 int32_t pixel_font_advance(char c)
 {
     LV_UNUSED(c);
-    return 24;
+    return 18;
 }
 

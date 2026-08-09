@@ -20,5 +20,7 @@ void app_main(void)
     frolic_app_init(lv_screen_active());
     bsp_display_unlock();
 
+#ifndef FROLIC_DISABLE_WIFI
     device_wifi_start();
+#endif
 }

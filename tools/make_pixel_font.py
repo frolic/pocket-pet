@@ -13,7 +13,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).parent))
 from convert_sprites import emit_frame
 
-PIXEL_SIZE = 4
+PIXEL_SIZE = 3
 INK = (56, 48, 48, 255)
 
 # 5 columns x 7 rows, 'X' = ink. Covers the HUD's needs: A-Z 0-9 : . /
