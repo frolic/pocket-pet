@@ -21,18 +21,19 @@
 #define PORTAL_IP "192.168.4.1"
 #define BOOT_BUTTON GPIO_NUM_0
 
+/*
+ * Provisioning design note: credentials are validated by REBOOTING into pure
+ * station mode, never by connecting the STA interface while the softAP runs.
+ * APSTA station-connect forces radio channel-switching that corrupts the QSPI
+ * display pipeline on this board (and made association itself unreliable).
+ * A failed attempt records an error and reboots back into the portal.
+ */
+
 static char stored_ssid[33];
 static char stored_password[65];
+static char last_error[96];
 
-/* Portal credential test: try the submitted network while the AP stays up;
-   only working credentials are saved. */
-static enum { TEST_NONE, TEST_RUNNING, TEST_OK, TEST_FAILED } test_state;
-static int test_disconnects;
-static char pending_ssid[64];
-static char pending_password[96];
-static void restart_task(void *arg);
-
-/* ---------- credential store ---------- */
+/* ---------- NVS ---------- */
 
 static bool load_credentials(void)
 {
@@ -52,6 +53,7 @@ static void save_credentials(const char *ssid, const char *password)
     ESP_ERROR_CHECK(nvs_open("wifi", NVS_READWRITE, &handle));
     ESP_ERROR_CHECK(nvs_set_str(handle, "ssid", ssid));
     ESP_ERROR_CHECK(nvs_set_str(handle, "password", password));
+    ESP_ERROR_CHECK(nvs_set_u8(handle, "validating", 1));
     ESP_ERROR_CHECK(nvs_commit(handle));
     nvs_close(handle);
 }
@@ -66,30 +68,56 @@ static void erase_credentials(void)
     }
 }
 
-/* ---------- station + SNTP (normal operation) ---------- */
-
-static void set_force_portal(uint8_t value)
+static void set_u8(const char *key, uint8_t value)
 {
     nvs_handle_t handle;
     if (nvs_open("wifi", NVS_READWRITE, &handle) == ESP_OK) {
-        nvs_set_u8(handle, "force_portal", value);
+        nvs_set_u8(handle, key, value);
         nvs_commit(handle);
         nvs_close(handle);
     }
 }
 
-static bool take_force_portal(void)
+static uint8_t get_u8(const char *key)
 {
     nvs_handle_t handle;
     uint8_t value = 0;
-    if (nvs_open("wifi", NVS_READWRITE, &handle) != ESP_OK) return false;
-    nvs_get_u8(handle, "force_portal", &value);
-    if (value) {
-        nvs_set_u8(handle, "force_portal", 0);
-        nvs_commit(handle);
+    if (nvs_open("wifi", NVS_READONLY, &handle) == ESP_OK) {
+        nvs_get_u8(handle, key, &value);
+        nvs_close(handle);
     }
+    return value;
+}
+
+static void set_last_error(const char *message)
+{
+    nvs_handle_t handle;
+    if (nvs_open("wifi", NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_set_str(handle, "last_error", message);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+}
+
+static void load_and_clear_last_error(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open("wifi", NVS_READWRITE, &handle) != ESP_OK) return;
+    size_t size = sizeof(last_error);
+    if (nvs_get_str(handle, "last_error", last_error, &size) != ESP_OK) {
+        last_error[0] = '\0';
+    }
+    nvs_erase_key(handle, "last_error");
+    nvs_commit(handle);
     nvs_close(handle);
-    return value != 0;
+}
+
+/* ---------- station mode (normal operation + validation boot) ---------- */
+
+static void restart_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    esp_restart();
 }
 
 static int station_failures;
@@ -98,20 +126,30 @@ static bool station_ever_connected;
 static void station_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_START || id == WIFI_EVENT_STA_DISCONNECTED)) {
-        /* Stored credentials that never work (changed router, typo saved by an
-           older build): give up and reopen the setup portal. */
-        if (id == WIFI_EVENT_STA_DISCONNECTED && !station_ever_connected && ++station_failures >= 15) {
-            printf("device_wifi: cannot join '%s' — rebooting into setup portal\n", stored_ssid);
-            set_force_portal(1);
-            esp_restart();
+        if (id == WIFI_EVENT_STA_DISCONNECTED && !station_ever_connected) {
+            int limit = get_u8("validating") ? 8 : 15;
+            if (++station_failures >= limit) {
+                printf("device_wifi: cannot join '%s' — rebooting into setup portal\n", stored_ssid);
+                char message[96];
+                snprintf(message, sizeof(message),
+                         "Couldn't join '%.32s' — check the password.", stored_ssid);
+                set_last_error(message);
+                set_u8("validating", 0);
+                set_u8("force_portal", 1);
+                esp_restart();
+            }
         }
         esp_wifi_connect();
     }
-    if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) station_ever_connected = true;
-    if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP && !esp_sntp_enabled()) {
-        esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
-        esp_sntp_setservername(0, "pool.ntp.org");
-        esp_sntp_init();
+    if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        station_ever_connected = true;
+        set_u8("validating", 0);
+        if (!esp_sntp_enabled()) {
+            esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+            esp_sntp_setservername(0, "pool.ntp.org");
+            esp_sntp_init();
+        }
+        printf("device_wifi: connected to '%s'\n", stored_ssid);
     }
 }
 
@@ -129,28 +167,11 @@ static void station_start(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config));
     ESP_ERROR_CHECK(esp_wifi_start());
-    /* Modem power-save transitions glitch the QSPI display pipeline —
-       keep the radio awake (worth the power on this battery budget). */
+    /* Modem power-save transitions can glitch the QSPI display pipeline. */
     esp_wifi_set_ps(WIFI_PS_NONE);
 }
 
 /* ---------- captive portal (setup mode) ---------- */
-
-static void portal_test_event(void *arg, esp_event_base_t base, int32_t id, void *data)
-{
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED && test_state == TEST_RUNNING) {
-        if (++test_disconnects >= 3) {
-            test_state = TEST_FAILED;
-        } else {
-            esp_wifi_connect();
-        }
-    }
-    if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP && test_state == TEST_RUNNING) {
-        test_state = TEST_OK;
-        save_credentials(pending_ssid, pending_password);
-        xTaskCreate(restart_task, "restart", 2048, NULL, 5, NULL);
-    }
-}
 
 /* Minimal DNS server answering every A query with the portal IP, so phones
    auto-open the setup page when they join the network. */
@@ -171,9 +192,9 @@ static void dns_hijack_task(void *arg)
         int length = recvfrom(sock, packet, sizeof(packet) - 16, 0,
                               (struct sockaddr *)&from, &from_length);
         if (length < 12) continue;
-        packet[2] = 0x81; /* response, recursion available */
+        packet[2] = 0x81;
         packet[3] = 0x80;
-        packet[6] = 0;    /* one answer */
+        packet[6] = 0;
         packet[7] = 1;
         uint8_t answer[] = {0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 30, 0, 4, 192, 168, 4, 1};
         memcpy(packet + length, answer, sizeof(answer));
@@ -187,18 +208,18 @@ static const char PORTAL_HEAD[] =
     "body{font-family:-apple-system,sans-serif;background:#88c878;margin:0;padding:24px;}"
     ".card{max-width:340px;margin:40px auto;background:#f8f8e8;border:4px solid #585048;"
     "border-radius:12px;padding:24px;}h1{font-size:20px;margin:0 0 4px;}p{color:#585048;margin:0 0 16px;}"
+    ".err{color:#c03a2f;font-weight:600;}"
     "input,select{width:100%;box-sizing:border-box;font-size:16px;padding:10px;margin:6px 0 14px;"
     "border:2px solid #585048;border-radius:8px;background:#fff;}"
     "button{width:100%;font-size:16px;padding:12px;background:#f8d030;border:2px solid #585048;"
     "border-radius:8px;font-weight:700;}"
     "</style></head><body><div class=card><h1>&#9889; pocket pikachu</h1>"
-    "<p>Pick the wifi Raichu should use. He'll remember it and reboot.</p>"
-    "<p id=err style='display:none;color:#c03A2f;font-weight:600'>"
-    "That password didn't work. Try again.</p>"
-    "<script>if(location.search.indexOf('bad')>=0)"
-    "document.currentScript.previousElementSibling.style.display='block'</script>"
+    "<p>Pick the wifi Raichu should use. He'll remember it and reboot.</p>";
+
+static const char PORTAL_FORM[] =
     "<form method=POST action=/save>"
-    "<label>Network<select name=ssid onchange=\"document.getElementById('o').style.display=this.value?'none':'block'\">";
+    "<label>Network<select name=ssid "
+    "onchange=\"document.getElementById('o').style.display=this.value?'none':'block'\">";
 
 static const char PORTAL_TAIL[] =
     "<option value=''>Other...</option></select></label>"
@@ -207,17 +228,13 @@ static const char PORTAL_TAIL[] =
     "<label>Password<input name=password type=password></label>"
     "<button>Save &amp; restart</button></form></div></body></html>";
 
-static const char TESTING_PAGE[] =
+static const char SAVED_PAGE[] =
     "<!DOCTYPE html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<title>connecting</title></head><body style='font-family:sans-serif;background:#88c878;"
-    "text-align:center;padding-top:80px;'><h1>&#9889; Connecting...</h1>"
-    "<p id=m>Raichu is connecting to your wifi. Hold on.</p>"
-    "<script>function poll(){fetch('/status').then(r=>r.text()).then(t=>{"
-    "if(t=='ok'){document.getElementById('m').textContent="
-    "'Connected! Raichu is rebooting onto your wifi.';}"
-    "else if(t=='bad'){location.href='/?bad=1';}"
-    "else setTimeout(poll,1500);}).catch(()=>setTimeout(poll,1500));}"
-    "setTimeout(poll,1500);</script></body></html>";
+    "<title>saved</title></head><body style='font-family:sans-serif;background:#88c878;"
+    "text-align:center;padding:80px 24px 0;'><h1>&#9889; Got it!</h1>"
+    "<p>Raichu is rebooting to try your wifi.</p>"
+    "<p>If it can't join, the <b>pocket-pikachu</b> network comes back in about half a "
+    "minute — rejoin it to see what went wrong and retry.</p></body></html>";
 
 static void url_decode(char *text)
 {
@@ -236,8 +253,8 @@ static void url_decode(char *text)
     *out = '\0';
 }
 
-/* Networks are scanned once at portal start (the httpd task stack is far
-   too small for scan buffers — overflowing it was crashing on first probe). */
+/* Networks are scanned once at portal start; the handler renders from the
+   static list (scan buffers overflow the httpd task stack). */
 #define PORTAL_MAX_NETWORKS 15
 static char portal_networks[PORTAL_MAX_NETWORKS][33];
 static int portal_network_count;
@@ -267,6 +284,12 @@ static esp_err_t portal_get_handler(httpd_req_t *request)
     if (strcmp(request->uri, "/") == 0) {
         httpd_resp_set_type(request, "text/html");
         httpd_resp_send_chunk(request, PORTAL_HEAD, HTTPD_RESP_USE_STRLEN);
+        if (last_error[0] != '\0') {
+            char banner[160];
+            snprintf(banner, sizeof(banner), "<p class=err>%s</p>", last_error);
+            httpd_resp_send_chunk(request, banner, HTTPD_RESP_USE_STRLEN);
+        }
+        httpd_resp_send_chunk(request, PORTAL_FORM, HTTPD_RESP_USE_STRLEN);
         for (int i = 0; i < portal_network_count; i++) {
             char option[64];
             snprintf(option, sizeof(option), "<option>%s</option>", portal_networks[i]);
@@ -281,50 +304,33 @@ static esp_err_t portal_get_handler(httpd_req_t *request)
     return httpd_resp_send(request, NULL, 0);
 }
 
-static void restart_task(void *arg)
-{
-    vTaskDelay(pdMS_TO_TICKS(1500));
-    esp_restart();
-}
-
 static esp_err_t portal_save_handler(httpd_req_t *request)
 {
     char body[256] = {0};
     int received = httpd_req_recv(request, body, sizeof(body) - 1);
     if (received <= 0) return ESP_FAIL;
 
-    httpd_query_key_value(body, "ssid", pending_ssid, sizeof(pending_ssid));
-    if (pending_ssid[0] == '\0') {
-        httpd_query_key_value(body, "ssid_other", pending_ssid, sizeof(pending_ssid));
+    char ssid[64] = {0};
+    char password[96] = {0};
+    httpd_query_key_value(body, "ssid", ssid, sizeof(ssid));
+    if (ssid[0] == '\0') {
+        httpd_query_key_value(body, "ssid_other", ssid, sizeof(ssid));
     }
-    httpd_query_key_value(body, "password", pending_password, sizeof(pending_password));
-    url_decode(pending_ssid);
-    url_decode(pending_password);
+    httpd_query_key_value(body, "password", password, sizeof(password));
+    url_decode(ssid);
+    url_decode(password);
+    if (ssid[0] != '\0') save_credentials(ssid, password);
 
-    if (pending_ssid[0] != '\0') {
-        test_state = TEST_RUNNING;
-        test_disconnects = 0;
-        wifi_config_t sta_config = {0};
-        strlcpy((char *)sta_config.sta.ssid, pending_ssid, sizeof(sta_config.sta.ssid));
-        strlcpy((char *)sta_config.sta.password, pending_password, sizeof(sta_config.sta.password));
-        esp_wifi_set_config(WIFI_IF_STA, &sta_config);
-        esp_wifi_connect();
-    }
     httpd_resp_set_type(request, "text/html");
-    httpd_resp_send(request, TESTING_PAGE, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send(request, SAVED_PAGE, HTTPD_RESP_USE_STRLEN);
+    xTaskCreate(restart_task, "restart", 2048, NULL, 5, NULL);
     return ESP_OK;
-}
-
-static esp_err_t portal_status_handler(httpd_req_t *request)
-{
-    const char *status = "testing";
-    if (test_state == TEST_OK) status = "ok";
-    if (test_state == TEST_FAILED) status = "bad";
-    return httpd_resp_send(request, status, HTTPD_RESP_USE_STRLEN);
 }
 
 static void portal_start(void)
 {
+    load_and_clear_last_error();
+
     esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
     wifi_init_config_t init_config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&init_config));
@@ -336,6 +342,7 @@ static void portal_start(void)
             .max_connection = 4,
         },
     };
+    /* APSTA only so the scan works — the STA interface never connects here. */
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -362,10 +369,6 @@ static void portal_start(void)
     server_config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_handle_t server = NULL;
     ESP_ERROR_CHECK(httpd_start(&server, &server_config));
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, portal_test_event, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, portal_test_event, NULL));
-    httpd_uri_t status_uri = {.uri = "/status", .method = HTTP_GET, .handler = portal_status_handler};
-    httpd_register_uri_handler(server, &status_uri);
     httpd_uri_t save_uri = {.uri = "/save", .method = HTTP_POST, .handler = portal_save_handler};
     httpd_uri_t any_uri = {.uri = "/*", .method = HTTP_GET, .handler = portal_get_handler};
     httpd_register_uri_handler(server, &save_uri);
@@ -394,7 +397,10 @@ void device_wifi_start(void)
         erase_credentials();
     }
 
-    if (!take_force_portal() && load_credentials()) {
+    bool force_portal = get_u8("force_portal") != 0;
+    if (force_portal) set_u8("force_portal", 0);
+
+    if (!force_portal && load_credentials()) {
         station_start();
     } else {
         portal_start();
