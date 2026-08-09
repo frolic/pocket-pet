@@ -26,7 +26,7 @@ static void poll_steps(lv_timer_t *timer)
 }
 
 /* Recording begins only after a deliberate hold — a stray press does nothing. */
-#define LISTEN_HOLD_MS 700
+#define LISTEN_HOLD_MS 300
 
 static uint32_t press_started_tick;
 static bool listening_active;
@@ -38,11 +38,16 @@ static void poll_button(lv_timer_t *timer)
 
     if (held && !button_was_held) press_started_tick = lv_tick_get();
 
-    if (held && !listening_active && !display_sleep_is_asleep() &&
-        lv_tick_elaps(press_started_tick) >= LISTEN_HOLD_MS) {
-        listening_active = true;
-        watchface_set_recording(true);
-        pet_listen_start();
+    if (held && lv_tick_elaps(press_started_tick) >= LISTEN_HOLD_MS) {
+        if (display_sleep_is_asleep()) {
+            /* Held while dark: wake the screen; keep holding to record. */
+            display_sleep_wake();
+            press_started_tick = lv_tick_get();
+        } else if (!listening_active) {
+            listening_active = true;
+            watchface_set_recording(true);
+            pet_listen_start();
+        }
     }
     if (!held && button_was_held) {
         display_sleep_poke();
