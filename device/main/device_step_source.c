@@ -4,6 +4,9 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include <math.h>
+#include <time.h>
+#include "nvs_flash.h"
+#include "nvs.h"
 #include "driver/i2c_master.h"
 #include "lvgl.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
@@ -174,6 +177,58 @@ static bool pedometer_init(void)
 #define SW_RESET_GAP_MS 1400
 
 static volatile uint32_t sw_steps;
+static nvs_handle_t steps_nvs;
+static uint32_t active_day;     /* yyyymmdd the current count belongs to */
+static uint32_t last_saved_steps;
+
+/* Days only count once the clock is real (SNTP has landed at least once
+   this power cycle; the RTC survives soft resets). */
+static uint32_t today_yyyymmdd(void)
+{
+    time_t now = time(NULL);
+    if (now < 1600000000) return 0; /* clock not synced yet */
+    struct tm local;
+    localtime_r(&now, &local);
+    return (uint32_t)((local.tm_year + 1900) * 10000 +
+                      (local.tm_mon + 1) * 100 + local.tm_mday);
+}
+
+/* Restores today's count across reboots; discards counts from other days. */
+static void steps_restore(void)
+{
+    if (nvs_open("frolic", NVS_READWRITE, &steps_nvs) != ESP_OK) return;
+    uint32_t stored_day = 0;
+    uint32_t stored_steps = 0;
+    nvs_get_u32(steps_nvs, "day", &stored_day);
+    nvs_get_u32(steps_nvs, "steps", &stored_steps);
+    active_day = today_yyyymmdd();
+    /* Unsynced clock: assume the stored count is still today's. */
+    if (stored_day != 0 && (active_day == 0 || stored_day == active_day)) {
+        sw_steps = stored_steps;
+        if (active_day == 0) active_day = stored_day;
+    }
+    last_saved_steps = sw_steps;
+    printf("steps: restored %lu (day %lu)\n",
+           (unsigned long)sw_steps, (unsigned long)active_day);
+}
+
+static void steps_persist_tick(void)
+{
+    uint32_t today = today_yyyymmdd();
+    if (active_day == 0) active_day = today;
+    if (today != 0 && active_day != 0 && today != active_day) {
+        printf("steps: midnight reset (day %lu -> %lu)\n",
+               (unsigned long)active_day, (unsigned long)today);
+        sw_steps = 0;
+        active_day = today;
+        last_saved_steps = 1; /* force a save below */
+    }
+    if (steps_nvs == 0 || sw_steps == last_saved_steps) return;
+    nvs_set_u32(steps_nvs, "day", active_day);
+    nvs_set_u32(steps_nvs, "steps", sw_steps);
+    nvs_commit(steps_nvs);
+    last_saved_steps = sw_steps;
+}
 
 static void step_detect_task(void *arg)
 {
@@ -182,8 +237,14 @@ static void step_detect_task(void *arg)
     bool above = false;
     uint32_t last_peak_ms = 0;
     int entry_run = 0;
+    int persist_countdown = 0;
+    steps_restore();
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(SW_SAMPLE_MS));
+        if (--persist_countdown <= 0) {
+            persist_countdown = 30000 / SW_SAMPLE_MS; /* every 30s */
+            steps_persist_tick();
+        }
         if (!ready) continue;
         uint8_t buffer[6];
         if (read_registers(0x35, buffer, 6) != ESP_OK) continue;
