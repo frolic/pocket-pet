@@ -15,3 +15,6 @@ void watchface_set_steps(uint32_t total);
 
 /* Shows/hides the recording indicator while the record button is held. */
 void watchface_set_recording(bool recording);
+
+/* Shows a centered status banner (e.g. "WIFI SETUP"), or hides it with NULL. */
+void watchface_set_banner(const char *text);

@@ -506,6 +506,18 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     return pet_root;
 }
 
+void pet_set_paused(bool paused)
+{
+    if (paused) {
+        lv_timer_pause(move_timer);
+        state = PET_STATE_IDLE;
+        set_anim(&idle_set);
+        lv_timer_pause(frame_timer);
+    } else {
+        lv_timer_resume(frame_timer);
+    }
+}
+
 void pet_notice_steps(uint32_t delta)
 {
     if (delta == 0) return;

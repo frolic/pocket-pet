@@ -66,7 +66,11 @@ static void heartbeat_task(void *arg)
             storm_beats = 0;
         }
         flush_failures_reported = failures;
+        #ifdef FROLIC_DEBUG
+        vTaskDelay(pdMS_TO_TICKS(1000));
+#else
         vTaskDelay(pdMS_TO_TICKS(2000));
+#endif
     }
 }
 

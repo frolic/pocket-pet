@@ -21,3 +21,7 @@ idf_component_register(
 if(DEFINED ENV{FROLIC_DISABLE_WIFI})
     target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_DISABLE_WIFI=1)
 endif()
+
+if(DEFINED ENV{FROLIC_DEBUG})
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_DEBUG=1)
+endif()

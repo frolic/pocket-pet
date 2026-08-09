@@ -25,3 +25,7 @@ typedef enum {
 
 /* Milestone celebration: turns to face the viewer and plays the animation. */
 void pet_celebrate(pet_celebration_t kind);
+
+/* Freezes all animation (static rest pose) — used while the radio works,
+   since animation flushes and heavy wifi activity corrupt each other. */
+void pet_set_paused(bool paused);

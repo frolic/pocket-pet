@@ -6,6 +6,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_event.h"
+#include "esp_log.h"
 #include "esp_http_server.h"
 #include "esp_netif.h"
 #include "esp_sntp.h"
@@ -16,6 +17,12 @@
 #include "dhcpserver/dhcpserver.h"
 #include "dhcpserver/dhcpserver_options.h"
 #include "device_wifi.h"
+
+#ifdef FROLIC_DEBUG
+#define WIFI_TRACE(...) printf("WIFI-TRACE: " __VA_ARGS__)
+#else
+#define WIFI_TRACE(...)
+#endif
 
 #define SETUP_SSID "pocket-pikachu"
 #define PORTAL_IP "192.168.4.1"
@@ -32,6 +39,7 @@
 static char stored_ssid[33];
 static char stored_password[65];
 static char last_error[96];
+static bool in_portal;
 
 /* ---------- NVS ---------- */
 
@@ -125,6 +133,7 @@ static bool station_ever_connected;
 
 static void station_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
+    WIFI_TRACE("station_event base=%s id=%d\n", base == WIFI_EVENT ? "WIFI" : "IP", (int)id);
     if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_START || id == WIFI_EVENT_STA_DISCONNECTED)) {
         if (id == WIFI_EVENT_STA_DISCONNECTED) {
             wifi_event_sta_disconnected_t *event = data;
@@ -182,6 +191,11 @@ static void station_start(void)
     ESP_ERROR_CHECK(esp_wifi_start());
     /* Modem power-save transitions can glitch the QSPI display pipeline. */
     esp_wifi_set_ps(WIFI_PS_NONE);
+    WIFI_TRACE("station_start done ssid='%s' password_length=%d pmf_capable=1\n",
+               stored_ssid, (int)strlen(stored_password));
+#ifdef FROLIC_DEBUG
+    esp_log_level_set("wifi", ESP_LOG_DEBUG);
+#endif
 }
 
 /* ---------- captive portal (setup mode) ---------- */
@@ -390,6 +404,12 @@ static void portal_start(void)
     httpd_register_uri_handler(server, &save_uri);
     httpd_register_uri_handler(server, &any_uri);
     printf("device_wifi: setup portal at http://%s (join '%s')\n", PORTAL_IP, SETUP_SSID);
+    in_portal = true;
+}
+
+bool device_wifi_in_portal(void)
+{
+    return in_portal;
 }
 
 void device_wifi_start(void)

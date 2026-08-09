@@ -31,6 +31,8 @@ static lv_obj_t *name_text;
 static lv_obj_t *right_text;
 static lv_obj_t *exp_fill;
 static lv_obj_t *record_dot;
+static lv_obj_t *banner_shadow;
+static lv_obj_t *banner_text;
 static lv_timer_t *daily_revert_timer;
 static uint32_t steps_total;
 static uint32_t level = 1;
@@ -157,6 +159,11 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_set_style_bg_color(exp_fill, EXP_FILL_COLOR, 0);
     lv_obj_set_style_bg_opa(exp_fill, LV_OPA_COVER, 0);
 
+    banner_shadow = pixel_text_create(screen);
+    pixel_text_set_color(banner_shadow, lv_color_black());
+    banner_text = pixel_text_create(screen);
+    pixel_text_set_color(banner_text, lv_color_white());
+
     record_dot = lv_obj_create(screen);
     lv_obj_remove_style_all(record_dot);
     lv_obj_set_size(record_dot, 18, 18);
@@ -180,6 +187,19 @@ void watchface_set_steps(uint32_t total)
     }
     uint32_t fill = (uint64_t)(total % STEP_GOAL) * EXP_FILL_MAX / STEP_GOAL;
     lv_obj_set_width(exp_fill, (int32_t)(fill / 4 * 4));
+}
+
+void watchface_set_banner(const char *text)
+{
+    if (text == NULL) {
+        pixel_text_set(banner_shadow, "");
+        pixel_text_set(banner_text, "");
+        return;
+    }
+    pixel_text_set(banner_shadow, text);
+    lv_obj_align(banner_shadow, LV_ALIGN_CENTER, 3, -132);
+    pixel_text_set(banner_text, text);
+    lv_obj_align(banner_text, LV_ALIGN_CENTER, 0, -135);
 }
 
 void watchface_set_recording(bool recording)

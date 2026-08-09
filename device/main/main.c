@@ -8,6 +8,8 @@
 #include "device_debug.h"
 #include "device_wifi.h"
 #include "frolic_app.h"
+#include "pet.h"
+#include "watchface.h"
 
 void app_main(void)
 {
