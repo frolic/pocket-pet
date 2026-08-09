@@ -10,6 +10,7 @@
 #include "esp_http_server.h"
 #include "esp_netif.h"
 #include "esp_sntp.h"
+#include "esp_timer.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "lwip/sockets.h"
@@ -131,10 +132,37 @@ static void restart_task(void *arg)
 static int station_failures;
 static bool station_ever_connected;
 
+/* Radio and animation corrupt each other on this board, and normal operation
+   doesn't need wifi: once the clock syncs, the radio shuts down entirely.
+   Future sync windows re-enable it briefly with the pet asleep. */
+static void radio_off_timer_cb(void *arg)
+{
+    printf("device_wifi: clock synced — radio off until next sync window\n");
+    esp_sntp_stop();
+    esp_wifi_stop();
+}
+
+static void on_time_synced(struct timeval *tv)
+{
+    printf("device_wifi: SNTP time sync complete\n");
+    /* Let SNTP finish its bookkeeping, then silence the radio. */
+    const esp_timer_create_args_t timer_args = {
+        .callback = radio_off_timer_cb,
+        .name = "radio_off",
+    };
+    static esp_timer_handle_t timer;
+    if (timer == NULL) {
+        esp_timer_create(&timer_args, &timer);
+        esp_timer_start_once(timer, 3 * 1000 * 1000);
+    }
+}
+
 static void station_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     WIFI_TRACE("station_event base=%s id=%d\n", base == WIFI_EVENT ? "WIFI" : "IP", (int)id);
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_STOP) return;
     if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_START || id == WIFI_EVENT_STA_DISCONNECTED)) {
+        if (id == WIFI_EVENT_STA_DISCONNECTED && station_ever_connected) return;
         if (id == WIFI_EVENT_STA_DISCONNECTED) {
             wifi_event_sta_disconnected_t *event = data;
             printf("device_wifi: disconnected from '%.32s' reason=%d rssi=%d\n",
@@ -161,6 +189,7 @@ static void station_event(void *arg, esp_event_base_t base, int32_t id, void *da
         if (!esp_sntp_enabled()) {
             esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
             esp_sntp_setservername(0, "pool.ntp.org");
+            sntp_set_time_sync_notification_cb(on_time_synced);
             esp_sntp_init();
         }
         printf("device_wifi: connected to '%s'\n", stored_ssid);
