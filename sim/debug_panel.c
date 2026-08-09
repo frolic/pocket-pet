@@ -2,6 +2,7 @@
 #include "debug_panel.h"
 #include "fake_step_source.h"
 #include "../app/button_source.h"
+#include "../app/pet.h"
 
 static bool record_held;
 
@@ -16,6 +17,11 @@ static void steps_clicked(lv_event_t *event)
 {
     LV_UNUSED(event);
     fake_step_source_add(2500);
+}
+
+static void celebrate_clicked(lv_event_t *event)
+{
+    pet_celebrate((pet_celebration_t)(uintptr_t)lv_event_get_user_data(event));
 }
 
 static lv_obj_t *make_button(lv_obj_t *parent, const char *text)
@@ -55,4 +61,14 @@ void debug_panel_create(lv_obj_t *parent)
 
     lv_obj_t *steps_button = make_button(rail, "+2500 steps");
     lv_obj_add_event_cb(steps_button, steps_clicked, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *shock_button = make_button(rail, "Shock");
+    lv_obj_add_event_cb(shock_button, celebrate_clicked, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)PET_CELEBRATION_SHOCK);
+    lv_obj_t *hop_button = make_button(rail, "Hop");
+    lv_obj_add_event_cb(hop_button, celebrate_clicked, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)PET_CELEBRATION_HOP);
+    lv_obj_t *breath_button = make_button(rail, "Breath");
+    lv_obj_add_event_cb(breath_button, celebrate_clicked, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)PET_CELEBRATION_BREATH);
 }

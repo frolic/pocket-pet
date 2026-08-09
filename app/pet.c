@@ -43,7 +43,7 @@ typedef enum {
     PET_STATE_LISTENING,      /* ...and nod along while they speak */
     PET_STATE_CELEBRATE,      /* recording done: a happy flourish, then idle */
     PET_STATE_TURN_CELEBRATE, /* milestone hit: turn to face the viewer... */
-    PET_STATE_SHOCK,          /* ...and let off electricity */
+    PET_STATE_CELEBRATE_PLAY, /* ...and play the celebration animation */
 } pet_state_t;
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
@@ -70,6 +70,8 @@ static anim_set_t sit_set;
 static anim_set_t nod_set;
 static anim_set_t pose_set;
 static anim_set_t shock_set;
+static anim_set_t hop_set;
+static anim_set_t breath_set;
 /* Indexed by sheet-row order: S, SE, E, NE, N, NW, W, SW. */
 static anim_set_t walk_sets[8];
 
@@ -92,7 +94,8 @@ static bool seated_permanent;   /* long-quiet sit vs a brief idle sit-break */
 static bool stand_up_to_wander; /* steps arrived while seated — walk after standing */
 static bool listen_requested;   /* record button held while mid-stand-up */
 static bool called_over;        /* walking to a tapped spot — don't settle mid-leg */
-static uint32_t shock_loops_left;
+static pet_celebration_t celebration_kind;
+static uint32_t celebrate_loops_left;
 
 static void hop(int32_t height);
 
@@ -340,19 +343,31 @@ static void advance_frame(lv_timer_t *timer)
         return;
     case PET_STATE_TURN_CELEBRATE:
         if (facing == FACING_SOUTH) {
-            state = PET_STATE_SHOCK;
-            shock_loops_left = CELEBRATE_LOOPS;
-            set_anim(&shock_set);
-            hop(30);
+            state = PET_STATE_CELEBRATE_PLAY;
+            switch (celebration_kind) {
+            case PET_CELEBRATION_SHOCK:
+                celebrate_loops_left = CELEBRATE_LOOPS;
+                set_anim(&shock_set);
+                hop(30);
+                break;
+            case PET_CELEBRATION_HOP:
+                celebrate_loops_left = CELEBRATE_LOOPS;
+                set_anim(&hop_set);
+                break;
+            case PET_CELEBRATION_BREATH:
+                celebrate_loops_left = 1;
+                set_anim(&breath_set);
+                break;
+            }
             return;
         }
         face_step_toward(FACING_SOUTH);
         lv_timer_set_period(frame_timer, TURN_STEP_MS);
         return;
-    case PET_STATE_SHOCK:
+    case PET_STATE_CELEBRATE_PLAY:
         frame_index++;
         if (frame_index >= current_set->count) {
-            if (--shock_loops_left == 0) {
+            if (--celebrate_loops_left == 0) {
                 state = PET_STATE_IDLE;
                 set_anim(&idle_set);
                 lv_timer_reset(frame_timer);
@@ -394,6 +409,7 @@ static void sprite_clicked(lv_event_t *event)
 static void measure_frames(int32_t *width, int32_t *height)
 {
     const anim_set_t *sets[] = {&idle_set, &sit_set, &nod_set, &pose_set, &shock_set,
+                                &hop_set, &breath_set,
                                 &walk_sets[0], &walk_sets[1], &walk_sets[2], &walk_sets[3],
                                 &walk_sets[4], &walk_sets[5], &walk_sets[6], &walk_sets[7]};
     *width = 0;
@@ -411,6 +427,8 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     nod_set = (anim_set_t){raichu_nod_frames, raichu_nod_durations_ms, raichu_nod_frame_count};
     pose_set = (anim_set_t){raichu_pose_frames, raichu_pose_durations_ms, raichu_pose_frame_count};
     shock_set = (anim_set_t){raichu_shock_frames, raichu_shock_durations_ms, raichu_shock_frame_count};
+    hop_set = (anim_set_t){raichu_hop_frames, raichu_hop_durations_ms, raichu_hop_frame_count};
+    breath_set = (anim_set_t){raichu_breath_frames, raichu_breath_durations_ms, raichu_breath_frame_count};
     walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
     walk_sets[1] = (anim_set_t){raichu_walk_se_frames, raichu_walk_se_durations_ms, raichu_walk_se_frame_count};
     walk_sets[2] = (anim_set_t){raichu_walk_e_frames, raichu_walk_e_durations_ms, raichu_walk_e_frame_count};
@@ -465,7 +483,7 @@ void pet_notice_steps(uint32_t delta)
     case PET_STATE_LISTENING:
     case PET_STATE_CELEBRATE:
     case PET_STATE_TURN_CELEBRATE:
-    case PET_STATE_SHOCK:
+    case PET_STATE_CELEBRATE_PLAY:
         /* Attention interactions outrank walking; steps refresh the timestamp. */
         break;
     default:
@@ -476,18 +494,19 @@ void pet_notice_steps(uint32_t delta)
     }
 }
 
-void pet_celebrate(void)
+void pet_celebrate(pet_celebration_t kind)
 {
     switch (state) {
     case PET_STATE_TURN_LISTEN:
     case PET_STATE_LISTENING:
     case PET_STATE_TURN_CELEBRATE:
-    case PET_STATE_SHOCK:
+    case PET_STATE_CELEBRATE_PLAY:
         /* Listening outranks celebrating; already celebrating repeats nothing. */
         return;
     default:
         break;
     }
+    celebration_kind = kind;
     lv_timer_pause(move_timer);
     called_over = false;
     state = PET_STATE_TURN_CELEBRATE;

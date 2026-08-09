@@ -15,8 +15,8 @@ static void poll_steps(lv_timer_t *timer)
     uint32_t total = step_source_total();
     if (total == last_total) return;
     watchface_set_steps(total);
-    if (last_total < STEP_GOAL && total >= STEP_GOAL) {
-        pet_celebrate();
+    if (total / STEP_GOAL > last_total / STEP_GOAL) {
+        pet_celebrate(PET_CELEBRATION_SHOCK);
     } else {
         pet_notice_steps(total - last_total);
     }

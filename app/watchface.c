@@ -32,16 +32,16 @@ static lv_obj_t *exp_fill;
 static lv_obj_t *record_dot;
 static lv_timer_t *daily_revert_timer;
 static uint32_t steps_total;
+static uint32_t level = 1;
 static bool showing_daily;
-
-/* Level is display-only until the EXP system lands. */
-#define LEVEL_TEXT "Lv1"
 
 static void show_level_view(void)
 {
     showing_daily = false;
     pixel_text_set(name_text, "RAICHU");
-    pixel_text_set(right_text, LEVEL_TEXT);
+    char text[12];
+    snprintf(text, sizeof(text), "LV%u", (unsigned)level);
+    pixel_text_set(right_text, text);
     lv_obj_align(right_text, LV_ALIGN_TOP_RIGHT, -BOX_PAD, TEXT_Y);
 }
 
@@ -168,9 +168,14 @@ void watchface_set_steps(uint32_t total)
     steps_total = total;
     if (showing_daily) show_daily_view();
 
-    /* Fill like the games: left to right, quantized to the 6px pixel grid. */
-    uint32_t fill = (uint64_t)total * EXP_FILL_MAX / STEP_GOAL;
-    if (fill > EXP_FILL_MAX) fill = EXP_FILL_MAX;
+    /* Each STEP_GOAL fills the bar once: it drains and the level ticks up,
+       like the games. Fill is quantized to the 6px pixel grid. */
+    uint32_t new_level = 1 + total / STEP_GOAL;
+    if (new_level != level) {
+        level = new_level;
+        if (!showing_daily) show_level_view();
+    }
+    uint32_t fill = (uint64_t)(total % STEP_GOAL) * EXP_FILL_MAX / STEP_GOAL;
     lv_obj_set_width(exp_fill, (int32_t)(fill / 6 * 6));
 }
 
