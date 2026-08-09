@@ -48,7 +48,13 @@ typedef enum {
     PET_STATE_STAND_WAIT,     /* ...then stand quietly a moment before moving on */
     PET_STATE_TURN_CELEBRATE, /* milestone hit: turn to face the viewer... */
     PET_STATE_CELEBRATE_PLAY, /* ...and play the celebration animation */
+    PET_STATE_LIE_DOWN,       /* long quiet after sitting: settle down to sleep... */
+    PET_STATE_SLEEPING,       /* ...curled breathing loop; only steps or a tap wake him */
+    PET_STATE_WAKING,         /* the stretch-and-stand Wake sequence */
 } pet_state_t;
+
+/* Seated this long (permanent sit) before lying down to sleep. */
+#define SLEEP_AFTER_MS 30000
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
 #define IDLE_REST_MIN_MS 2500
@@ -76,6 +82,9 @@ static anim_set_t pose_set;
 static anim_set_t shock_set;
 static anim_set_t hop_set;
 static anim_set_t breath_set;
+static anim_set_t laying_set;
+static anim_set_t sleep_set;
+static anim_set_t wake_set;
 /* Indexed by sheet-row order: S, SE, E, NE, N, NW, W, SW. */
 static anim_set_t walk_sets[8];
 
@@ -97,6 +106,8 @@ static uint32_t turn_accum_ms;
 static bool seated_permanent;   /* long-quiet sit vs a brief idle sit-break */
 static bool stand_up_to_wander; /* steps arrived while seated — walk after standing */
 static bool listen_requested;   /* record button held while mid-stand-up */
+static bool wake_to_wander;     /* steps woke him — walk after the stretch */
+static uint32_t seated_since_tick;
 static bool called_over;        /* walking to a tapped spot — don't settle mid-leg */
 static pet_celebration_t celebration_kind;
 static uint32_t celebrate_loops_left;
@@ -299,6 +310,7 @@ static void advance_frame(lv_timer_t *timer)
             show_frame();
         } else {
             state = PET_STATE_SEATED;
+            seated_since_tick = lv_tick_get();
             lv_timer_set_period(frame_timer, seated_permanent
                 ? 500
                 : (uint32_t)(SEATED_HOLD_MIN_MS + rand() % (SEATED_HOLD_MAX_MS - SEATED_HOLD_MIN_MS)));
@@ -309,6 +321,36 @@ static void advance_frame(lv_timer_t *timer)
             stand_up_to_wander = false;
             state = PET_STATE_STAND_UP;
             lv_timer_set_period(frame_timer, 1);
+            return;
+        }
+        if (lv_tick_elaps(seated_since_tick) > SLEEP_AFTER_MS) {
+            state = PET_STATE_LIE_DOWN;
+            set_anim(&laying_set);
+            lv_timer_set_period(frame_timer, 700);
+        }
+        return;
+    case PET_STATE_LIE_DOWN:
+        state = PET_STATE_SLEEPING;
+        set_anim(&sleep_set);
+        return;
+    case PET_STATE_SLEEPING:
+        /* Curled breathing loop; nothing else happens while he sleeps. */
+        frame_index = (frame_index + 1) % current_set->count;
+        show_frame();
+        return;
+    case PET_STATE_WAKING:
+        if (frame_index < current_set->count - 1) {
+            frame_index++;
+            show_frame();
+        } else if (wake_to_wander) {
+            state = PET_STATE_WANDER;
+            pick_new_target();
+            lv_timer_resume(move_timer);
+            kick_frame_timer();
+        } else {
+            state = PET_STATE_TURN_SOUTH;
+            facing = FACING_NORTH; /* woke from lying; turn back around to face front */
+            lv_timer_set_period(frame_timer, TURN_STEP_MS);
         }
         return;
     case PET_STATE_STAND_UP:
@@ -437,14 +479,37 @@ static void hop(int32_t height)
 static void sprite_clicked(lv_event_t *event)
 {
     LV_UNUSED(event);
-    hop(34);
+    switch (state) {
+    case PET_STATE_SIT_DOWN:
+    case PET_STATE_SEATED:
+        /* A tap while sitting stands him up. */
+        stand_up_to_wander = false;
+        state = PET_STATE_STAND_UP;
+        kick_frame_timer();
+        return;
+    case PET_STATE_LIE_DOWN:
+    case PET_STATE_SLEEPING:
+        /* A tap wakes him: stretch, stand, turn to face you. */
+        wake_to_wander = false;
+        state = PET_STATE_WAKING;
+        set_anim(&wake_set);
+        kick_frame_timer();
+        return;
+    case PET_STATE_TURN_LISTEN:
+    case PET_STATE_LISTENING:
+    case PET_STATE_ACK_NOD:
+    case PET_STATE_WAKING:
+        return;
+    default:
+        hop(34);
+    }
 }
 
 /* Largest native frame across every animation set. */
 static void measure_frames(int32_t *width, int32_t *height)
 {
     const anim_set_t *sets[] = {&idle_set, &sit_set, &nod_set, &pose_set, &shock_set,
-                                &hop_set, &breath_set,
+                                &hop_set, &breath_set, &laying_set, &sleep_set, &wake_set,
                                 &walk_sets[0], &walk_sets[1], &walk_sets[2], &walk_sets[3],
                                 &walk_sets[4], &walk_sets[5], &walk_sets[6], &walk_sets[7]};
     *width = 0;
@@ -464,6 +529,9 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     shock_set = (anim_set_t){raichu_shock_frames, raichu_shock_durations_ms, raichu_shock_frame_count};
     hop_set = (anim_set_t){raichu_hop_frames, raichu_hop_durations_ms, raichu_hop_frame_count};
     breath_set = (anim_set_t){raichu_breath_frames, raichu_breath_durations_ms, raichu_breath_frame_count};
+    laying_set = (anim_set_t){raichu_laying_frames, raichu_laying_durations_ms, raichu_laying_frame_count};
+    sleep_set = (anim_set_t){raichu_sleep_frames, raichu_sleep_durations_ms, raichu_sleep_frame_count};
+    wake_set = (anim_set_t){raichu_wake_frames, raichu_wake_durations_ms, raichu_wake_frame_count};
     walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
     walk_sets[1] = (anim_set_t){raichu_walk_se_frames, raichu_walk_se_durations_ms, raichu_walk_se_frame_count};
     walk_sets[2] = (anim_set_t){raichu_walk_e_frames, raichu_walk_e_durations_ms, raichu_walk_e_frame_count};
@@ -506,6 +574,17 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     return pet_root;
 }
 
+void pet_freeze(bool frozen)
+{
+    if (frozen) {
+        lv_timer_pause(frame_timer);
+        lv_timer_pause(move_timer);
+    } else {
+        lv_timer_resume(frame_timer);
+        if (state == PET_STATE_WANDER) lv_timer_resume(move_timer);
+    }
+}
+
 void pet_set_paused(bool paused)
 {
     if (paused) {
@@ -531,6 +610,17 @@ void pet_notice_steps(uint32_t delta)
         stand_up_to_wander = true;
         state = PET_STATE_STAND_UP;
         kick_frame_timer();
+        break;
+    case PET_STATE_LIE_DOWN:
+    case PET_STATE_SLEEPING:
+        /* Steps wake him: stretch, then off we go. */
+        wake_to_wander = true;
+        state = PET_STATE_WAKING;
+        set_anim(&wake_set);
+        kick_frame_timer();
+        break;
+    case PET_STATE_WAKING:
+        wake_to_wander = true;
         break;
     case PET_STATE_STAND_UP:
         stand_up_to_wander = true;

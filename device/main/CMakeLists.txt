@@ -9,6 +9,7 @@ idf_component_register(
         "../../app/watchface.c"
         "../../app/pet.c"
         "../../app/pixel_scale.c"
+        "../../app/display_sleep.c"
         "../../app/pixel_text.c"
         "../../app/sprites/raichu_sprites.c"
         "../../app/sprites/field_bg.c"

@@ -29,3 +29,6 @@ void pet_celebrate(pet_celebration_t kind);
 /* Freezes all animation (static rest pose) — used while the radio works,
    since animation flushes and heavy wifi activity corrupt each other. */
 void pet_set_paused(bool paused);
+
+/* Suspends animation without changing state — used while the screen sleeps. */
+void pet_freeze(bool frozen);

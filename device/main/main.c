@@ -7,9 +7,16 @@
 #include "bsp/display.h"
 #include "device_debug.h"
 #include "device_wifi.h"
+#include "display_sleep.h"
 #include "frolic_app.h"
 #include "pet.h"
 #include "watchface.h"
+
+/* AMOLED: brightness 0 is pixels-off — effectively the panel sleeping. */
+static void display_hw_power(bool on)
+{
+    bsp_display_brightness_set(on ? 80 : 0);
+}
 
 void app_main(void)
 {
@@ -32,8 +39,10 @@ void app_main(void)
         }};
     display_config.lvgl_port_cfg.task_affinity = 1;
     bsp_display_start_with_config(&display_config);
+    bsp_display_brightness_set(80);
     bsp_display_lock(0);
     frolic_app_init(lv_screen_active());
+    display_sleep_set_hw_cb(display_hw_power);
     bsp_display_unlock();
 
 #ifndef FROLIC_DISABLE_WIFI

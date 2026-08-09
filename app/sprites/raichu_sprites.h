@@ -33,6 +33,18 @@ extern const lv_image_dsc_t *const raichu_breath_frames[];
 extern const uint32_t raichu_breath_durations_ms[];
 extern const uint32_t raichu_breath_frame_count;
 
+extern const lv_image_dsc_t *const raichu_laying_frames[];
+extern const uint32_t raichu_laying_durations_ms[];
+extern const uint32_t raichu_laying_frame_count;
+
+extern const lv_image_dsc_t *const raichu_sleep_frames[];
+extern const uint32_t raichu_sleep_durations_ms[];
+extern const uint32_t raichu_sleep_frame_count;
+
+extern const lv_image_dsc_t *const raichu_wake_frames[];
+extern const uint32_t raichu_wake_durations_ms[];
+extern const uint32_t raichu_wake_frame_count;
+
 extern const lv_image_dsc_t *const raichu_walk_s_frames[];
 extern const uint32_t raichu_walk_s_durations_ms[];
 extern const uint32_t raichu_walk_s_frame_count;
