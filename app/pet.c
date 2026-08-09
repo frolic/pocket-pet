@@ -23,6 +23,7 @@
 #define TURN_STEP_MS 120
 #define FACING_SOUTH 0
 #define FACING_NORTH 4
+#define FACING_WEST 6
 #define FACING_SOUTHWEST 7
 /* Feet anchor on the panel: fixed so animation canvas sizes never move him. */
 #define PET_FEET_Y 334
@@ -50,7 +51,7 @@ typedef enum {
     PET_STATE_TURN_CELEBRATE, /* milestone hit: turn to face the viewer... */
     PET_STATE_CELEBRATE_PLAY, /* ...and play the celebration animation */
     PET_STATE_TURN_SLEEP,     /* long quiet: turn southwest (the lying art's facing)... */
-    PET_STATE_LIE_DOWN,       /* ...settle down... */
+       /* ...settle down... */
     PET_STATE_SLEEPING,       /* ...curled breathing loop; only steps or a tap wake him */
     PET_STATE_WAKING,         /* the stretch-and-stand Wake sequence */
 } pet_state_t;
@@ -82,7 +83,6 @@ static anim_set_t pose_set;
 static anim_set_t shock_set;
 static anim_set_t hop_set;
 static anim_set_t breath_set;
-static anim_set_t laying_set;
 static anim_set_t sleep_set;
 static anim_set_t wake_set;
 /* Indexed by sheet-row order: S, SE, E, NE, N, NW, W, SW. */
@@ -336,17 +336,12 @@ static void advance_frame(lv_timer_t *timer)
         return;
     case PET_STATE_TURN_SLEEP:
         if (facing == FACING_SOUTHWEST) {
-            state = PET_STATE_LIE_DOWN;
-            set_anim(&laying_set);
-            lv_timer_set_period(frame_timer, 700);
+            state = PET_STATE_SLEEPING;
+            set_anim(&sleep_set);
             return;
         }
         face_step_toward(FACING_SOUTHWEST);
         lv_timer_set_period(frame_timer, TURN_STEP_MS);
-        return;
-    case PET_STATE_LIE_DOWN:
-        state = PET_STATE_SLEEPING;
-        set_anim(&sleep_set);
         return;
     case PET_STATE_SLEEPING:
         /* Curled breathing loop; nothing else happens while he sleeps. */
@@ -364,7 +359,6 @@ static void advance_frame(lv_timer_t *timer)
             kick_frame_timer();
         } else {
             state = PET_STATE_TURN_SOUTH;
-            facing = FACING_SOUTHWEST; /* woke from lying; one turn step back to front */
             lv_timer_set_period(frame_timer, TURN_STEP_MS);
         }
         return;
@@ -505,12 +499,11 @@ static void sprite_clicked(lv_event_t *event)
     case PET_STATE_TURN_SLEEP:
         state = PET_STATE_TURN_SOUTH;
         return;
-    case PET_STATE_LIE_DOWN:
     case PET_STATE_SLEEPING:
         /* A tap wakes him: stretch, stand, turn to face you. */
         wake_to_wander = false;
         state = PET_STATE_WAKING;
-        facing = FACING_SOUTHWEST;
+        facing = FACING_WEST; /* the wake stretch art faces west */
         set_anim(&wake_set);
         kick_frame_timer();
         return;
@@ -528,7 +521,7 @@ static void sprite_clicked(lv_event_t *event)
 static void measure_frames(int32_t *width, int32_t *height)
 {
     const anim_set_t *sets[] = {&idle_set, &sit_set, &nod_set, &pose_set, &shock_set,
-                                &hop_set, &breath_set, &laying_set, &sleep_set, &wake_set,
+                                &hop_set, &breath_set, &sleep_set, &wake_set,
                                 &walk_sets[0], &walk_sets[1], &walk_sets[2], &walk_sets[3],
                                 &walk_sets[4], &walk_sets[5], &walk_sets[6], &walk_sets[7]};
     *width = 0;
@@ -548,7 +541,6 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     shock_set = (anim_set_t){raichu_shock_frames, raichu_shock_durations_ms, raichu_shock_frame_count};
     hop_set = (anim_set_t){raichu_hop_frames, raichu_hop_durations_ms, raichu_hop_frame_count};
     breath_set = (anim_set_t){raichu_breath_frames, raichu_breath_durations_ms, raichu_breath_frame_count};
-    laying_set = (anim_set_t){raichu_laying_frames, raichu_laying_durations_ms, raichu_laying_frame_count};
     sleep_set = (anim_set_t){raichu_sleep_frames, raichu_sleep_durations_ms, raichu_sleep_frame_count};
     wake_set = (anim_set_t){raichu_wake_frames, raichu_wake_durations_ms, raichu_wake_frame_count};
     walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
@@ -601,7 +593,6 @@ void pet_freeze(bool frozen)
         switch (state) {
         case PET_STATE_TURN_LISTEN:
         case PET_STATE_LISTENING:
-        case PET_STATE_LIE_DOWN:
         case PET_STATE_SLEEPING:
             break;
         default:
@@ -625,7 +616,6 @@ void pet_sleep_now(void)
     case PET_STATE_LISTENING:
     case PET_STATE_ACK_NOD:
     case PET_STATE_TURN_SLEEP:
-    case PET_STATE_LIE_DOWN:
     case PET_STATE_SLEEPING:
         return;
     default:
@@ -666,12 +656,11 @@ void pet_notice_steps(uint32_t delta)
         state = PET_STATE_STAND_UP;
         kick_frame_timer();
         break;
-    case PET_STATE_LIE_DOWN:
     case PET_STATE_SLEEPING:
         /* Steps wake him: stretch, then off we go. */
         wake_to_wander = true;
         state = PET_STATE_WAKING;
-        facing = FACING_SOUTHWEST;
+        facing = FACING_WEST; /* the wake stretch art faces west */
         set_anim(&wake_set);
         kick_frame_timer();
         break;
