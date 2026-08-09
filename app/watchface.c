@@ -26,9 +26,49 @@
 
 static lv_obj_t *panel;
 static lv_obj_t *time_text;
-static lv_obj_t *steps_text;
+static lv_obj_t *name_text;
+static lv_obj_t *right_text;
 static lv_obj_t *exp_fill;
 static lv_obj_t *record_dot;
+static lv_timer_t *daily_revert_timer;
+static uint32_t steps_total;
+static bool showing_daily;
+
+/* Level is display-only until the EXP system lands. */
+#define LEVEL_TEXT "LV.1"
+
+static void show_level_view(void)
+{
+    showing_daily = false;
+    pixel_text_set(name_text, "RAICHU");
+    pixel_text_set(right_text, LEVEL_TEXT);
+    lv_obj_align(right_text, LV_ALIGN_TOP_RIGHT, -BOX_PAD, TEXT_Y);
+}
+
+static void show_daily_view(void)
+{
+    showing_daily = true;
+    pixel_text_set(name_text, "DAILY");
+    char text[16];
+    snprintf(text, sizeof(text), "%u/10K", (unsigned)steps_total);
+    pixel_text_set(right_text, text);
+    lv_obj_align(right_text, LV_ALIGN_TOP_RIGHT, -BOX_PAD, TEXT_Y);
+}
+
+static void revert_to_level_view(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    show_level_view();
+    lv_timer_pause(daily_revert_timer);
+}
+
+static void box_clicked(lv_event_t *event)
+{
+    LV_UNUSED(event);
+    show_daily_view();
+    lv_timer_reset(daily_revert_timer);
+    lv_timer_resume(daily_revert_timer);
+}
 
 static void refresh_time(lv_timer_t *timer)
 {
@@ -42,20 +82,16 @@ static void refresh_time(lv_timer_t *timer)
     lv_obj_align(time_text, LV_ALIGN_TOP_MID, 0, 14);
 }
 
-static void field_touched(lv_event_t *event)
+static void field_clicked(lv_event_t *event)
 {
-    lv_event_code_t code = lv_event_get_code(event);
-    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        pet_face_end();
-        return;
-    }
+    LV_UNUSED(event);
     lv_indev_t *indev = lv_indev_active();
     if (indev == NULL) return;
     lv_point_t point;
     lv_indev_get_point(indev, &point);
     lv_area_t area;
     lv_obj_get_coords(panel, &area);
-    pet_face_toward(point.x - area.x1, point.y - area.y1);
+    pet_call_to(point.x - area.x1, point.y - area.y1);
 }
 
 void watchface_create(lv_obj_t *parent)
@@ -63,10 +99,7 @@ void watchface_create(lv_obj_t *parent)
     panel = parent;
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(panel, field_touched, LV_EVENT_PRESSED, NULL);
-    lv_obj_add_event_cb(panel, field_touched, LV_EVENT_PRESSING, NULL);
-    lv_obj_add_event_cb(panel, field_touched, LV_EVENT_RELEASED, NULL);
-    lv_obj_add_event_cb(panel, field_touched, LV_EVENT_PRESS_LOST, NULL);
+    lv_obj_add_event_cb(panel, field_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *screen = panel;
 
     /* GBA-route grass field. (Costs AMOLED pixels-off battery; it's a pet, worth it.) */
@@ -91,12 +124,14 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_t *box_frame = lv_image_create(box);
     lv_image_set_src(box_frame, hud_dialog_box);
 
-    lv_obj_t *name_text = pixel_text_create(box);
-    pixel_text_set(name_text, "RAICHU");
+    name_text = pixel_text_create(box);
     lv_obj_set_pos(name_text, BOX_PAD, TEXT_Y);
 
-    steps_text = pixel_text_create(box);
-    lv_obj_align(steps_text, LV_ALIGN_TOP_RIGHT, -BOX_PAD, TEXT_Y);
+    right_text = pixel_text_create(box);
+    daily_revert_timer = lv_timer_create(revert_to_level_view, 3500, NULL);
+    lv_timer_pause(daily_revert_timer);
+    show_level_view();
+    lv_obj_add_event_cb(box, box_clicked, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *exp_bar = lv_image_create(box);
     lv_image_set_src(exp_bar, hud_exp_frame);
@@ -120,10 +155,8 @@ void watchface_create(lv_obj_t *parent)
 
 void watchface_set_steps(uint32_t total)
 {
-    char text[16];
-    snprintf(text, sizeof(text), "%u", (unsigned)total);
-    pixel_text_set(steps_text, text);
-    lv_obj_align(steps_text, LV_ALIGN_TOP_RIGHT, -BOX_PAD, TEXT_Y);
+    steps_total = total;
+    if (showing_daily) show_daily_view();
 
     /* Fill like the games: left to right, quantized to the 6px pixel grid. */
     uint32_t fill = (uint64_t)total * EXP_FILL_MAX / STEP_GOAL;

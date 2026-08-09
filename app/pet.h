@@ -14,7 +14,5 @@ void pet_listen_start(void);
 /* ...and acknowledges with a nod on release. */
 void pet_listen_end(void);
 
-/* Finger down/dragging on the field: he rotates to face the finger (parent coords). */
-void pet_face_toward(int32_t x, int32_t y);
-/* Finger lifted: he turns back to face the viewer and resumes idling. */
-void pet_face_end(void);
+/* Tap on the field: he walks over to investigate the spot (parent coords). */
+void pet_call_to(int32_t x, int32_t y);
