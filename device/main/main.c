@@ -12,10 +12,15 @@
 #include "pet.h"
 #include "watchface.h"
 
-/* AMOLED: brightness 0 is pixels-off — effectively the panel sleeping. */
-static void display_hw_power(bool on)
+/* AMOLED: brightness 0 is pixels-off — so the fade-out ramp ends with the
+   panel effectively sleeping. */
+static void display_dim(uint8_t brightness_percent)
 {
-    bsp_display_brightness_set(on ? 80 : 0);
+    /* The fade animation calls every frame; only touch the panel on change. */
+    static uint8_t last_sent = 255;
+    if (brightness_percent == last_sent) return;
+    last_sent = brightness_percent;
+    bsp_display_brightness_set(brightness_percent);
 }
 
 void app_main(void)
@@ -42,7 +47,7 @@ void app_main(void)
     bsp_display_brightness_set(80);
     bsp_display_lock(0);
     frolic_app_init(lv_screen_active());
-    display_sleep_set_hw_cb(display_hw_power);
+    display_sleep_set_dim_cb(display_dim);
     bsp_display_unlock();
 
 #ifndef FROLIC_DISABLE_WIFI

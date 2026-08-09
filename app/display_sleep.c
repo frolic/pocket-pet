@@ -8,19 +8,61 @@ static bool asleep;
 static bool settling;
 static uint32_t settle_started_tick;
 static uint32_t pet_asleep_since_tick;
-static void (*hardware_cb)(bool on);
+static void (*dim_cb)(uint8_t brightness_percent);
 
 /* Bedtime choreography: the pet visibly settles before the screen fades. */
 #define SLEEP_POSE_LINGER_MS 1200
 #define SETTLE_CAP_MS 8000
 
+/* Fade-out: panel brightness ramps down while the blanket cross-fades in,
+   gray first, then gray to black. One animation drives both. */
+#define FADE_MS 1400
+#define FADE_GRAY 0x3A3A3E
+#define AWAKE_BRIGHTNESS 80
+
+static void fade_exec(void *var, int32_t value)
+{
+    LV_UNUSED(var);
+    if (value <= 255) {
+        lv_obj_set_style_bg_color(blanket, lv_color_hex(FADE_GRAY), 0);
+        lv_obj_set_style_bg_opa(blanket, (lv_opa_t)value, 0);
+    } else {
+        lv_obj_set_style_bg_color(
+            blanket,
+            lv_color_mix(lv_color_black(), lv_color_hex(FADE_GRAY),
+                         (uint8_t)(value - 255)),
+            0);
+        lv_obj_set_style_bg_opa(blanket, LV_OPA_COVER, 0);
+    }
+    if (dim_cb != NULL) {
+        dim_cb((uint8_t)(AWAKE_BRIGHTNESS * (510 - value) / 510));
+    }
+}
+
+static void fade_done(lv_anim_t *anim)
+{
+    LV_UNUSED(anim);
+    pet_freeze(true);
+    if (dim_cb != NULL) dim_cb(0);
+}
+
 static void go_to_sleep(void)
 {
     asleep = true;
     settling = false;
+    /* Blanket goes visible-but-clear immediately so touches during the
+       fade are swallowed; the pet keeps breathing until the fade lands. */
+    lv_obj_set_style_bg_opa(blanket, LV_OPA_TRANSP, 0);
     lv_obj_remove_flag(blanket, LV_OBJ_FLAG_HIDDEN);
-    pet_freeze(true);
-    if (hardware_cb != NULL) hardware_cb(false);
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, blanket);
+    lv_anim_set_exec_cb(&anim, fade_exec);
+    lv_anim_set_values(&anim, 0, 510);
+    lv_anim_set_duration(&anim, FADE_MS);
+    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in);
+    lv_anim_set_completed_cb(&anim, fade_done);
+    lv_anim_start(&anim);
 }
 
 static void watch_tick(lv_timer_t *timer)
@@ -57,7 +99,7 @@ static void watch_tick(lv_timer_t *timer)
 void display_sleep_init(uint32_t timeout_ms)
 {
     sleep_timeout_ms = timeout_ms;
-    /* Top-layer blanket: blacks the sim and swallows touches on device,
+    /* Top-layer blanket: fades the sim and swallows touches on device,
        where the panel keeps sensing even with the AMOLED dark. */
     blanket = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(blanket);
@@ -69,9 +111,9 @@ void display_sleep_init(uint32_t timeout_ms)
     watch_timer = lv_timer_create(watch_tick, 300, NULL);
 }
 
-void display_sleep_set_hw_cb(void (*hw_cb)(bool on))
+void display_sleep_set_dim_cb(void (*cb)(uint8_t brightness_percent))
 {
-    hardware_cb = hw_cb;
+    dim_cb = cb;
 }
 
 bool display_sleep_is_asleep(void)
@@ -93,8 +135,9 @@ void display_sleep_wake(void)
 {
     if (!asleep) return;
     asleep = false;
+    lv_anim_delete(blanket, fade_exec);
     lv_obj_add_flag(blanket, LV_OBJ_FLAG_HIDDEN);
     pet_freeze(false);
-    if (hardware_cb != NULL) hardware_cb(true);
+    if (dim_cb != NULL) dim_cb(AWAKE_BRIGHTNESS);
     lv_display_trigger_activity(NULL);
 }
