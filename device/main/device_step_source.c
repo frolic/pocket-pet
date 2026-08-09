@@ -8,8 +8,9 @@
 
 /*
  * QMI8658 hardware pedometer. Register sequences ported from lewisxhe's
- * SensorLib (MIT) QMI8658 pedometer support; tuning values from its example:
- * 2G range @ 62.5Hz, 200mg peak-to-peak, 100mg peak, 10-step entry filter.
+ * SensorLib (MIT) QMI8658 pedometer support. Thresholds follow its example's
+ * bring-up profile (the datasheet walking profile rejects nearly everything):
+ * 2G @ 62.5Hz, 80mg peak-to-peak, 60mg peak, 4-step entry filter.
  */
 
 #define QMI_ADDRESS_PRIMARY 0x6B
@@ -104,20 +105,20 @@ static bool pedometer_init(void)
     /* Pedometer configuration, two CAL-register batches (SensorLib recipe). */
     write_register(REG_CAL1_L, 50);   /* sample window */
     write_register(REG_CAL1_H, 0);
-    write_register(REG_CAL2_L, 200);  /* peak-to-peak threshold, mg */
+    write_register(REG_CAL2_L, 80);   /* peak-to-peak threshold, mg */
     write_register(REG_CAL2_H, 0);
-    write_register(REG_CAL3_L, 100);  /* peak threshold, mg */
+    write_register(REG_CAL3_L, 60);   /* peak threshold, mg */
     write_register(REG_CAL3_H, 0);
     write_register(REG_CAL4_H, 0x01);
     write_register(REG_CAL4_L, 0x02);
     if (!run_command(COMMAND_CONFIGURE_PEDOMETER)) return false;
 
-    write_register(REG_CAL1_L, 200);  /* step timeout window */
-    write_register(REG_CAL1_H, 0);
-    write_register(REG_CAL2_L, 20);   /* step quiet time */
-    write_register(REG_CAL2_H, 10);   /* entry count — filters fake steps */
+    write_register(REG_CAL1_L, 0x90); /* step timeout window: 400 (low byte) */
+    write_register(REG_CAL1_H, 0x01); /* 400 = 0x0190 */
+    write_register(REG_CAL2_L, 8);    /* step quiet time */
+    write_register(REG_CAL2_H, 4);    /* entry count — filters lone bumps */
     write_register(REG_CAL3_L, 0);    /* precision */
-    write_register(REG_CAL3_H, 4);    /* update registers every 4 steps */
+    write_register(REG_CAL3_H, 1);    /* significant-step interval */
     write_register(REG_CAL4_H, 0x02);
     write_register(REG_CAL4_L, 0x02);
     if (!run_command(COMMAND_CONFIGURE_PEDOMETER)) return false;
@@ -149,6 +150,26 @@ uint32_t step_source_total(void)
     if (read_registers(REG_STEP_CNT_LOW, buffer, 3) == ESP_OK) {
         cached_steps = ((uint32_t)buffer[2] << 16) | ((uint32_t)buffer[1] << 8) | buffer[0];
         cached_at_tick = lv_tick_get();
+    }
+
+    /* Temporary diagnostics: prove the accel is sampling and the pedometer
+       engine is enabled. Remove once step counting is confirmed. */
+    static uint32_t last_dump_tick;
+    if (lv_tick_elaps(last_dump_tick) > 2000) {
+        last_dump_tick = lv_tick_get();
+        uint8_t ctrl[8] = {0};
+        uint8_t status0 = 0;
+        uint8_t accel[6] = {0};
+        read_registers(REG_CTRL1, ctrl, 8);      /* CTRL1..CTRL8 = 0x02..0x09 */
+        read_registers(0x2E, &status0, 1);       /* STATUS0: data-ready bits */
+        read_registers(0x35, accel, 6);          /* AX_L..AZ_H */
+        int16_t ax = (int16_t)(accel[0] | (accel[1] << 8));
+        int16_t ay = (int16_t)(accel[2] | (accel[3] << 8));
+        int16_t az = (int16_t)(accel[4] | (accel[5] << 8));
+        printf("qmi-dbg ctrl2=%02x ctrl7=%02x ctrl8=%02x status0=%02x "
+               "accel=%d,%d,%d steps=%lu\n",
+               ctrl[1], ctrl[6], ctrl[7], status0,
+               ax, ay, az, (unsigned long)cached_steps);
     }
     return cached_steps;
 }
