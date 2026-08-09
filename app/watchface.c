@@ -18,7 +18,7 @@
 #define BOX_HEIGHT 96
 #define BOX_MARGIN 12
 #define BOX_PAD 18
-#define TEXT_Y 14
+#define TEXT_Y 20
 #define EXP_BAR_WIDTH 348
 #define EXP_BAR_HEIGHT 24
 #define EXP_BAR_Y (BOX_HEIGHT - EXP_BAR_HEIGHT - 12)
