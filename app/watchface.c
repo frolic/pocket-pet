@@ -149,6 +149,7 @@ void watchface_create(lv_obj_t *parent)
 
     exp_fill = lv_obj_create(box);
     lv_obj_remove_style_all(exp_fill);
+    lv_obj_remove_flag(exp_fill, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(exp_fill, 0, EXP_BAR_HEIGHT - 12);
     lv_obj_set_pos(exp_fill, (BOX_WIDTH - EXP_BAR_WIDTH) / 2 + 6, EXP_BAR_Y + 6);
     lv_obj_set_style_bg_color(exp_fill, EXP_FILL_COLOR, 0);

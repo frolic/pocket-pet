@@ -15,6 +15,8 @@ lv_obj_t *pixel_text_create(lv_obj_t *parent)
     lv_obj_remove_style_all(row);
     lv_obj_set_size(row, 0, PIXEL_FONT_HEIGHT);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    /* Text never swallows taps — clicks fall through to whatever it sits on. */
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
     return row;
 }
 
