@@ -31,6 +31,8 @@ add_executable(frolic_sim
     app/frolic_app.c
     app/watchface.c
     app/pet.c
+    app/pixel_text.c
+    app/sprites/pixel_font.c
     app/sprites/raichu_sprites.c
     app/sprites/field_bg.c
 )
