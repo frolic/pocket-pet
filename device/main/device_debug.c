@@ -8,6 +8,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "device_debug.h"
+#include "step_source.h"
 
 static volatile uint32_t flush_failures;
 static uint32_t flush_failures_reported;
@@ -45,13 +46,13 @@ static void heartbeat_task(void *arg)
         wifi_mode_t mode = WIFI_MODE_NULL;
         esp_wifi_get_mode(&mode);
         uint32_t failures = flush_failures;
-        printf("HB up=%llds heap=%uk min=%uk psram=%uk flushfail=%u(+%u) wifi=%d\n",
+        printf("HB up=%llds heap=%uk min=%uk psram=%uk flushfail=%u(+%u) wifi=%d steps=%u\n",
                esp_timer_get_time() / 1000000,
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
                (unsigned)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024),
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
                (unsigned)failures, (unsigned)(failures - flush_failures_reported),
-               (int)mode);
+               (int)mode, (unsigned)step_source_total());
         /* Self-heal: a sustained flush-failure storm means the SPI pipeline
            wedged (it never recovers on its own) — restart clears it. */
         static int storm_beats;
