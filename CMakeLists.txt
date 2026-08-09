@@ -33,6 +33,7 @@ add_executable(frolic_sim
     app/pet.c
     app/pixel_text.c
     app/sprites/pixel_font.c
+    app/sprites/hud_box.c
     app/sprites/raichu_sprites.c
     app/sprites/field_bg.c
 )

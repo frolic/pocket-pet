@@ -5,22 +5,23 @@
 #include "pet.h"
 #include "pixel_text.h"
 #include "sprites/field_bg.h"
+#include "sprites/hud_box.h"
 
 #define STEP_GOAL 10000
 
-/* Pokemon-dialog palette; geometry stays on the scene's 6px pixel grid. */
-#define BOX_FILL_COLOR lv_color_hex(0xF8F8E8)
-#define BOX_BORDER_COLOR lv_color_hex(0x585048)
-#define EXP_SLOT_COLOR lv_color_hex(0x504840)
+/* Box/slot/border colors live in the generated chrome (tools/make_hud.py). */
 #define EXP_FILL_COLOR lv_color_hex(0x48C0E8)
 #define RECORD_COLOR lv_color_hex(0xD93A2F)
 
+/* Sizes match the generated pixel-art chrome (tools/make_hud.py). */
 #define BOX_WIDTH 384
-#define BOX_HEIGHT 84
+#define BOX_HEIGHT 96
 #define BOX_MARGIN 12
 #define BOX_PAD 18
+#define TEXT_Y 14
 #define EXP_BAR_WIDTH 348
 #define EXP_BAR_HEIGHT 24
+#define EXP_BAR_Y (BOX_HEIGHT - EXP_BAR_HEIGHT - 12)
 #define EXP_FILL_MAX (EXP_BAR_WIDTH - 12)
 
 static lv_obj_t *panel;
@@ -80,42 +81,33 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_t *pet = pet_create(screen);
     lv_obj_align(pet, LV_ALIGN_CENTER, 0, -30);
 
+    /* Pixel-art chrome images; a plain wrapper keeps child coords honest. */
     lv_obj_t *box = lv_obj_create(screen);
     lv_obj_remove_style_all(box);
     lv_obj_set_size(box, BOX_WIDTH, BOX_HEIGHT);
     lv_obj_align(box, LV_ALIGN_BOTTOM_MID, 0, -BOX_MARGIN);
-    lv_obj_set_style_bg_color(box, BOX_FILL_COLOR, 0);
-    lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(box, 12, 0);
-    lv_obj_set_style_border_width(box, 6, 0);
-    lv_obj_set_style_border_color(box, BOX_BORDER_COLOR, 0);
     lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *box_frame = lv_image_create(box);
+    lv_image_set_src(box_frame, hud_dialog_box);
 
     lv_obj_t *name_text = pixel_text_create(box);
     pixel_text_set(name_text, "RAICHU");
-    lv_obj_set_pos(name_text, BOX_PAD - 6, 12);
+    lv_obj_set_pos(name_text, BOX_PAD, TEXT_Y);
 
     steps_text = pixel_text_create(box);
-    lv_obj_align(steps_text, LV_ALIGN_TOP_RIGHT, -(BOX_PAD - 6), 12);
+    lv_obj_align(steps_text, LV_ALIGN_TOP_RIGHT, -BOX_PAD, TEXT_Y);
 
-    lv_obj_t *exp_bar = lv_obj_create(box);
-    lv_obj_remove_style_all(exp_bar);
-    lv_obj_set_size(exp_bar, EXP_BAR_WIDTH, EXP_BAR_HEIGHT);
-    lv_obj_align(exp_bar, LV_ALIGN_BOTTOM_MID, 0, -12);
-    lv_obj_set_style_bg_color(exp_bar, EXP_SLOT_COLOR, 0);
-    lv_obj_set_style_bg_opa(exp_bar, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(exp_bar, 6, 0);
-    lv_obj_set_style_border_width(exp_bar, 6, 0);
-    lv_obj_set_style_border_color(exp_bar, BOX_BORDER_COLOR, 0);
+    lv_obj_t *exp_bar = lv_image_create(box);
+    lv_image_set_src(exp_bar, hud_exp_frame);
+    lv_obj_set_pos(exp_bar, (BOX_WIDTH - EXP_BAR_WIDTH) / 2, EXP_BAR_Y);
 
-    exp_fill = lv_obj_create(exp_bar);
+    exp_fill = lv_obj_create(box);
     lv_obj_remove_style_all(exp_fill);
     lv_obj_set_size(exp_fill, 0, EXP_BAR_HEIGHT - 12);
-    lv_obj_set_pos(exp_fill, 0, 0);
+    lv_obj_set_pos(exp_fill, (BOX_WIDTH - EXP_BAR_WIDTH) / 2 + 6, EXP_BAR_Y + 6);
     lv_obj_set_style_bg_color(exp_fill, EXP_FILL_COLOR, 0);
     lv_obj_set_style_bg_opa(exp_fill, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(exp_fill, 3, 0);
 
     record_dot = lv_obj_create(screen);
     lv_obj_remove_style_all(record_dot);
@@ -131,7 +123,7 @@ void watchface_set_steps(uint32_t total)
     char text[16];
     snprintf(text, sizeof(text), "%u", (unsigned)total);
     pixel_text_set(steps_text, text);
-    lv_obj_align(steps_text, LV_ALIGN_TOP_RIGHT, -(BOX_PAD - 6), 12);
+    lv_obj_align(steps_text, LV_ALIGN_TOP_RIGHT, -BOX_PAD, TEXT_Y);
 
     /* Fill like the games: left to right, quantized to the 6px pixel grid. */
     uint32_t fill = (uint64_t)total * EXP_FILL_MAX / STEP_GOAL;
