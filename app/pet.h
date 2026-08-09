@@ -16,3 +16,6 @@ void pet_listen_end(void);
 
 /* Tap on the field: he walks over to investigate the spot (parent coords). */
 void pet_call_to(int32_t x, int32_t y);
+
+/* Milestone celebration: turns to face the viewer and lets off electricity. */
+void pet_celebrate(void);

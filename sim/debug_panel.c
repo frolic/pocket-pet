@@ -15,7 +15,7 @@ static void record_event(lv_event_t *event)
 static void steps_clicked(lv_event_t *event)
 {
     LV_UNUSED(event);
-    fake_step_source_add(250);
+    fake_step_source_add(2500);
 }
 
 static lv_obj_t *make_button(lv_obj_t *parent, const char *text)
@@ -53,6 +53,6 @@ void debug_panel_create(lv_obj_t *parent)
     lv_obj_t *record_button = make_button(rail, "REC\n(hold)");
     lv_obj_add_event_cb(record_button, record_event, LV_EVENT_ALL, NULL);
 
-    lv_obj_t *steps_button = make_button(rail, "+250 steps");
+    lv_obj_t *steps_button = make_button(rail, "+2500 steps");
     lv_obj_add_event_cb(steps_button, steps_clicked, LV_EVENT_CLICKED, NULL);
 }

@@ -21,6 +21,7 @@ ANIMS = [
     {"anim": "Sit", "row": 0, "name": "sit"},
     {"anim": "Nod", "row": 0, "name": "nod"},
     {"anim": "Pose", "row": 0, "name": "pose"},
+    {"anim": "Shock", "row": 0, "name": "shock"},
 ] + [
     {"anim": "Walk", "row": row, "name": f"walk_{direction}"}
     for row, direction in enumerate(DIRECTIONS)

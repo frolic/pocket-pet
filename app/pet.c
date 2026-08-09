@@ -21,6 +21,10 @@
 #define TURN_STEP_MS 120
 #define FACING_SOUTH 0
 #define FACING_NORTH 4
+/* Feet anchor on the panel: fixed so animation canvas sizes never move him. */
+#define PET_FEET_Y 334
+/* The Shock burst plays this many times when celebrating. */
+#define CELEBRATE_LOOPS 2
 
 /*
  * The Sit artwork is single-row and faces away from the camera, so sitting
@@ -35,9 +39,11 @@ typedef enum {
     PET_STATE_SIT_DOWN,
     PET_STATE_SEATED,
     PET_STATE_STAND_UP,
-    PET_STATE_TURN_LISTEN, /* record button held: turn to face the viewer... */
-    PET_STATE_LISTENING,   /* ...and nod along while they speak */
-    PET_STATE_CELEBRATE,   /* recording done: a happy flourish, then idle */
+    PET_STATE_TURN_LISTEN,    /* record button held: turn to face the viewer... */
+    PET_STATE_LISTENING,      /* ...and nod along while they speak */
+    PET_STATE_CELEBRATE,      /* recording done: a happy flourish, then idle */
+    PET_STATE_TURN_CELEBRATE, /* milestone hit: turn to face the viewer... */
+    PET_STATE_SHOCK,          /* ...and let off electricity */
 } pet_state_t;
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
@@ -63,6 +69,7 @@ static anim_set_t idle_set;
 static anim_set_t sit_set;
 static anim_set_t nod_set;
 static anim_set_t pose_set;
+static anim_set_t shock_set;
 /* Indexed by sheet-row order: S, SE, E, NE, N, NW, W, SW. */
 static anim_set_t walk_sets[8];
 
@@ -85,6 +92,9 @@ static bool seated_permanent;   /* long-quiet sit vs a brief idle sit-break */
 static bool stand_up_to_wander; /* steps arrived while seated — walk after standing */
 static bool listen_requested;   /* record button held while mid-stand-up */
 static bool called_over;        /* walking to a tapped spot — don't settle mid-leg */
+static uint32_t shock_loops_left;
+
+static void hop(int32_t height);
 
 static void show_frame(void)
 {
@@ -328,6 +338,30 @@ static void advance_frame(lv_timer_t *timer)
             lv_timer_reset(frame_timer);
         }
         return;
+    case PET_STATE_TURN_CELEBRATE:
+        if (facing == FACING_SOUTH) {
+            state = PET_STATE_SHOCK;
+            shock_loops_left = CELEBRATE_LOOPS;
+            set_anim(&shock_set);
+            hop(30);
+            return;
+        }
+        face_step_toward(FACING_SOUTH);
+        lv_timer_set_period(frame_timer, TURN_STEP_MS);
+        return;
+    case PET_STATE_SHOCK:
+        frame_index++;
+        if (frame_index >= current_set->count) {
+            if (--shock_loops_left == 0) {
+                state = PET_STATE_IDLE;
+                set_anim(&idle_set);
+                lv_timer_reset(frame_timer);
+                return;
+            }
+            frame_index = 0;
+        }
+        show_frame();
+        return;
     }
     frame_index = (frame_index + 1) % current_set->count;
     show_frame();
@@ -359,11 +393,14 @@ static void sprite_clicked(lv_event_t *event)
 
 static void measure_frames(int32_t *width, int32_t *height)
 {
-    *width = LV_MAX(idle_set.frames[0]->header.w, sit_set.frames[0]->header.w);
-    *height = LV_MAX(idle_set.frames[0]->header.h, sit_set.frames[0]->header.h);
-    for (int row = 0; row < 8; row++) {
-        *width = LV_MAX(*width, walk_sets[row].frames[0]->header.w);
-        *height = LV_MAX(*height, walk_sets[row].frames[0]->header.h);
+    const anim_set_t *sets[] = {&idle_set, &sit_set, &nod_set, &pose_set, &shock_set,
+                                &walk_sets[0], &walk_sets[1], &walk_sets[2], &walk_sets[3],
+                                &walk_sets[4], &walk_sets[5], &walk_sets[6], &walk_sets[7]};
+    *width = 0;
+    *height = 0;
+    for (size_t i = 0; i < sizeof(sets) / sizeof(sets[0]); i++) {
+        *width = LV_MAX(*width, sets[i]->frames[0]->header.w);
+        *height = LV_MAX(*height, sets[i]->frames[0]->header.h);
     }
 }
 
@@ -373,6 +410,7 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     sit_set = (anim_set_t){raichu_sit_frames, raichu_sit_durations_ms, raichu_sit_frame_count};
     nod_set = (anim_set_t){raichu_nod_frames, raichu_nod_durations_ms, raichu_nod_frame_count};
     pose_set = (anim_set_t){raichu_pose_frames, raichu_pose_durations_ms, raichu_pose_frame_count};
+    shock_set = (anim_set_t){raichu_shock_frames, raichu_shock_durations_ms, raichu_shock_frame_count};
     walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
     walk_sets[1] = (anim_set_t){raichu_walk_se_frames, raichu_walk_se_durations_ms, raichu_walk_se_frame_count};
     walk_sets[2] = (anim_set_t){raichu_walk_e_frames, raichu_walk_e_durations_ms, raichu_walk_e_frame_count};
@@ -386,8 +424,10 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     lv_obj_remove_style_all(pet_root);
     int32_t width, height;
     measure_frames(&width, &height);
-    /* Sized to the largest animation (plus hop headroom) so nothing ever clips. */
+    /* Sized to the largest animation (plus hop headroom) so nothing ever clips,
+       anchored by the feet so canvas growth (e.g. Shock's bolts) never moves him. */
     lv_obj_set_size(pet_root, width, height + HOP_HEADROOM);
+    lv_obj_align(pet_root, LV_ALIGN_TOP_MID, 0, PET_FEET_Y - (height + HOP_HEADROOM));
     lv_obj_remove_flag(pet_root, LV_OBJ_FLAG_SCROLLABLE);
     apply_position();
 
@@ -424,6 +464,8 @@ void pet_notice_steps(uint32_t delta)
     case PET_STATE_TURN_LISTEN:
     case PET_STATE_LISTENING:
     case PET_STATE_CELEBRATE:
+    case PET_STATE_TURN_CELEBRATE:
+    case PET_STATE_SHOCK:
         /* Attention interactions outrank walking; steps refresh the timestamp. */
         break;
     default:
@@ -432,6 +474,24 @@ void pet_notice_steps(uint32_t delta)
         lv_timer_resume(move_timer);
         kick_frame_timer();
     }
+}
+
+void pet_celebrate(void)
+{
+    switch (state) {
+    case PET_STATE_TURN_LISTEN:
+    case PET_STATE_LISTENING:
+    case PET_STATE_TURN_CELEBRATE:
+    case PET_STATE_SHOCK:
+        /* Listening outranks celebrating; already celebrating repeats nothing. */
+        return;
+    default:
+        break;
+    }
+    lv_timer_pause(move_timer);
+    called_over = false;
+    state = PET_STATE_TURN_CELEBRATE;
+    kick_frame_timer();
 }
 
 void pet_listen_start(void)
@@ -486,11 +546,10 @@ void pet_call_to(int32_t x, int32_t y)
     }
 
     lv_obj_t *parent = lv_obj_get_parent(pet_root);
-    /* Feet sit at the container bottom; aim them at the tapped spot. */
+    /* Feet sit at the fixed anchor; aim them at the tapped spot. */
     float home_x = lv_obj_get_width(parent) / 2.0f;
-    float home_feet_y = lv_obj_get_height(parent) / 2.0f - 30 + lv_obj_get_height(pet_root) / 2.0f;
     target_x = LV_CLAMP(ROAM_MIN_X, x - home_x, ROAM_MAX_X);
-    target_y = LV_CLAMP(ROAM_MIN_Y, y - home_feet_y, ROAM_MAX_Y);
+    target_y = LV_CLAMP(ROAM_MIN_Y, y - PET_FEET_Y, ROAM_MAX_Y);
     if (hypotf(target_x - pos_x, target_y - pos_y) < 10.0f) return;
 
     target_facing = heading_row(target_x - pos_x, target_y - pos_y);

@@ -3,11 +3,10 @@
 #include "lvgl.h"
 #include "watchface.h"
 #include "pet.h"
+#include "game_config.h"
 #include "pixel_text.h"
 #include "sprites/field_bg.h"
 #include "sprites/hud_box.h"
-
-#define STEP_GOAL 10000
 
 /* Box/slot/border colors live in the generated chrome (tools/make_hud.py). */
 #define EXP_FILL_COLOR lv_color_hex(0x48C0E8)
@@ -122,9 +121,8 @@ void watchface_create(lv_obj_t *parent)
     lv_timer_create(refresh_time, 1000, NULL);
     refresh_time(NULL);
 
-    /* The pet roams the field; the info box overlays the bottom. */
-    lv_obj_t *pet = pet_create(screen);
-    lv_obj_align(pet, LV_ALIGN_CENTER, 0, -30);
+    /* The pet roams the field (it anchors its own feet position). */
+    pet_create(screen);
 
     /* Pixel-art chrome images; a plain wrapper keeps child coords honest. */
     lv_obj_t *box = lv_obj_create(screen);
