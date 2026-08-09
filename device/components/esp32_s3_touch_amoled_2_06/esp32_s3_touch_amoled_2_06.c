@@ -434,7 +434,10 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
                                                                  config->max_transfer_sz);
     ESP_ERROR_CHECK(spi_bus_initialize(BSP_LCD_SPI_NUM, &buscfg, SPI_DMA_CH_AUTO));
 
-    const esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS, NULL, NULL);
+    esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS, NULL, NULL);
+    /* Vendored change: deeper transaction queue absorbs flush bursts when
+       wifi traffic delays the LVGL task (stock depth 10 dropped flushes). */
+    io_config.trans_queue_depth = 24;
 
     sh8601_vendor_config_t vendor_config = {
         .init_cmds = lcd_init_cmds,
