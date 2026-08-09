@@ -32,3 +32,7 @@ endif()
 if(DEFINED ENV{FROLIC_OTA_URL})
     target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_OTA_URL="$ENV{FROLIC_OTA_URL}")
 endif()
+
+if(DEFINED ENV{FROLIC_OTA_FAST})
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_OTA_FAST=1)
+endif()

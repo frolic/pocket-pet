@@ -22,8 +22,14 @@
 
 #ifdef FROLIC_OTA_URL
 
+/* Fast cadence is a dev-serve knob; regular builds check twice an hour. */
+#ifdef FROLIC_OTA_FAST
 #define OTA_INTERVAL_MS 60000
 #define OTA_AWAKE_RETRY_MS 10000
+#else
+#define OTA_INTERVAL_MS 1800000
+#define OTA_AWAKE_RETRY_MS 60000
+#endif
 #define OTA_FIRST_CHECK_MS 20000
 
 static bool fetch_version(char *out, size_t out_size)

@@ -9,6 +9,7 @@ IP="$(ipconfig getifaddr en0)"
 # a plain incremental build would keep the previous stamp.
 export PROJECT_VER="dev-$(date +%Y%m%d-%H%M%S)"
 export FROLIC_OTA_URL="http://${IP}:${PORT}"
+export FROLIC_OTA_FAST=1
 source "$HOME/esp/esp-idf/export.sh" >/dev/null 2>&1
 idf.py reconfigure >/dev/null
 idf.py build
