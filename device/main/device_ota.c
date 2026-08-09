@@ -10,6 +10,7 @@
 #include "device_wifi.h"
 #include "step_source.h"
 #include "battery_source.h"
+#include "device_debug.h"
 
 /*
  * Dev OTA loop: every interval, open a radio window, compare the version the
@@ -50,11 +51,12 @@ static void send_telemetry(void)
 {
     char url[256];
     snprintf(url, sizeof(url),
-             FROLIC_OTA_URL "/telemetry?up=%lld&steps=%lu&bat=%d&qmi=%d&version=%s",
+             FROLIC_OTA_URL "/telemetry?up=%lld&steps=%lu&bat=%d&qmi=%d&ff=%lu&version=%s",
              esp_timer_get_time() / 1000000,
              (unsigned long)step_source_total(),
              battery_source_percent(),
              step_source_status(),
+             (unsigned long)device_debug_flush_failure_count(),
              esp_app_get_description()->version);
     esp_http_client_config_t config = {.url = url, .timeout_ms = 3000};
     esp_http_client_handle_t client = esp_http_client_init(&config);

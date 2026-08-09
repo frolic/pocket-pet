@@ -41,6 +41,11 @@ static const char *reset_reason_name(esp_reset_reason_t reason)
     }
 }
 
+uint32_t device_debug_flush_failure_count(void)
+{
+    return flush_failures;
+}
+
 static void heartbeat_task(void *arg)
 {
     while (true) {

@@ -7,3 +7,6 @@
  * starves the system — while counting every occurrence.
  */
 void device_debug_start(void);
+
+/* Total dropped display flushes since boot (tearing indicator). */
+uint32_t device_debug_flush_failure_count(void);

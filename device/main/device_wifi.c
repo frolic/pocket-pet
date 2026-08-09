@@ -460,11 +460,16 @@ bool device_wifi_window_begin(uint32_t timeout_ms)
     if (window_events == NULL) window_events = xEventGroupCreate();
     xEventGroupClearBits(window_events, WINDOW_GOT_IP_BIT);
     window_mode = true;
+    /* Raise the radio-active flag FIRST and give the main loop time to
+       freeze the pet and land the banner frame — radio and in-flight
+       flushes corrupt each other on this board. */
+    radio_active = true;
+    vTaskDelay(pdMS_TO_TICKS(900));
     if (esp_wifi_start() != ESP_OK) {
+        radio_active = false;
         window_mode = false;
         return false;
     }
-    radio_active = true;
     EventBits_t bits = xEventGroupWaitBits(window_events, WINDOW_GOT_IP_BIT,
                                            pdFALSE, pdFALSE,
                                            pdMS_TO_TICKS(timeout_ms));
@@ -479,8 +484,10 @@ bool device_wifi_window_begin(uint32_t timeout_ms)
 void device_wifi_window_end(void)
 {
     esp_wifi_stop();
-    radio_active = false;
     window_mode = false;
+    /* Let the radio spin down fully before animation resumes. */
+    vTaskDelay(pdMS_TO_TICKS(300));
+    radio_active = false;
 }
 
 bool device_wifi_in_portal(void)
