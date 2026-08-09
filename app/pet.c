@@ -23,6 +23,7 @@
 #define TURN_STEP_MS 120
 #define FACING_SOUTH 0
 #define FACING_NORTH 4
+#define FACING_SOUTHWEST 7
 /* Feet anchor on the panel: fixed so animation canvas sizes never move him. */
 #define PET_FEET_Y 334
 /* The Shock burst plays this many times when celebrating. */
@@ -48,13 +49,14 @@ typedef enum {
     PET_STATE_STAND_WAIT,     /* ...then stand quietly a moment before moving on */
     PET_STATE_TURN_CELEBRATE, /* milestone hit: turn to face the viewer... */
     PET_STATE_CELEBRATE_PLAY, /* ...and play the celebration animation */
-    PET_STATE_LIE_DOWN,       /* long quiet after sitting: settle down to sleep... */
+    PET_STATE_TURN_SLEEP,     /* long quiet: turn southwest (the lying art's facing)... */
+    PET_STATE_LIE_DOWN,       /* ...settle down... */
     PET_STATE_SLEEPING,       /* ...curled breathing loop; only steps or a tap wake him */
     PET_STATE_WAKING,         /* the stretch-and-stand Wake sequence */
 } pet_state_t;
 
-/* Seated this long (permanent sit) before lying down to sleep. */
-#define SLEEP_AFTER_MS 30000
+/* Quiet this long while idle before he settles down to sleep. */
+#define SLEEP_QUIET_MS 45000
 
 /* Idle texture: long rests between bounces, occasional brief sit instead. */
 #define IDLE_REST_MIN_MS 2500
@@ -103,11 +105,9 @@ static float pos_x, pos_y = 30.0f;
 static float target_x, target_y;
 static int32_t pause_left_ms;
 static uint32_t turn_accum_ms;
-static bool seated_permanent;   /* long-quiet sit vs a brief idle sit-break */
 static bool stand_up_to_wander; /* steps arrived while seated — walk after standing */
 static bool listen_requested;   /* record button held while mid-stand-up */
 static bool wake_to_wander;     /* steps woke him — walk after the stretch */
-static uint32_t seated_since_tick;
 static bool called_over;        /* walking to a tapped spot — don't settle mid-leg */
 static pet_celebration_t celebration_kind;
 static uint32_t celebrate_loops_left;
@@ -270,16 +270,14 @@ static void advance_frame(lv_timer_t *timer)
         lv_timer_set_period(frame_timer, TURN_STEP_MS);
         return;
     case PET_STATE_IDLE:
-        if (lv_tick_elaps(last_step_tick) > WALK_LINGER_MS + SIT_AFTER_MS) {
-            seated_permanent = true;
-            state = PET_STATE_TURN_NORTH;
+        if (lv_tick_elaps(last_step_tick) > WALK_LINGER_MS + SLEEP_QUIET_MS) {
+            state = PET_STATE_TURN_SLEEP;
             lv_timer_set_period(frame_timer, TURN_STEP_MS);
             return;
         }
         if (frame_index == 0) {
             /* A rest hold just ended: usually bounce, sometimes sit a moment. */
             if (rand() % 100 < SIT_BREAK_CHANCE_PCT) {
-                seated_permanent = false;
                 state = PET_STATE_TURN_NORTH;
                 lv_timer_set_period(frame_timer, TURN_STEP_MS);
                 return;
@@ -310,24 +308,25 @@ static void advance_frame(lv_timer_t *timer)
             show_frame();
         } else {
             state = PET_STATE_SEATED;
-            seated_since_tick = lv_tick_get();
-            lv_timer_set_period(frame_timer, seated_permanent
-                ? 500
-                : (uint32_t)(SEATED_HOLD_MIN_MS + rand() % (SEATED_HOLD_MAX_MS - SEATED_HOLD_MIN_MS)));
+            lv_timer_set_period(frame_timer,
+                (uint32_t)(SEATED_HOLD_MIN_MS + rand() % (SEATED_HOLD_MAX_MS - SEATED_HOLD_MIN_MS)));
         }
         return;
     case PET_STATE_SEATED:
-        if (!seated_permanent) {
-            stand_up_to_wander = false;
-            state = PET_STATE_STAND_UP;
-            lv_timer_set_period(frame_timer, 1);
-            return;
-        }
-        if (lv_tick_elaps(seated_since_tick) > SLEEP_AFTER_MS) {
+        /* Sits are always brief now; the hold period was set on entry. */
+        stand_up_to_wander = false;
+        state = PET_STATE_STAND_UP;
+        lv_timer_set_period(frame_timer, 1);
+        return;
+    case PET_STATE_TURN_SLEEP:
+        if (facing == FACING_SOUTHWEST) {
             state = PET_STATE_LIE_DOWN;
             set_anim(&laying_set);
             lv_timer_set_period(frame_timer, 700);
+            return;
         }
+        face_step_toward(FACING_SOUTHWEST);
+        lv_timer_set_period(frame_timer, TURN_STEP_MS);
         return;
     case PET_STATE_LIE_DOWN:
         state = PET_STATE_SLEEPING;
@@ -349,7 +348,7 @@ static void advance_frame(lv_timer_t *timer)
             kick_frame_timer();
         } else {
             state = PET_STATE_TURN_SOUTH;
-            facing = FACING_NORTH; /* woke from lying; turn back around to face front */
+            facing = FACING_SOUTHWEST; /* woke from lying; one turn step back to front */
             lv_timer_set_period(frame_timer, TURN_STEP_MS);
         }
         return;
@@ -487,6 +486,9 @@ static void sprite_clicked(lv_event_t *event)
         state = PET_STATE_STAND_UP;
         kick_frame_timer();
         return;
+    case PET_STATE_TURN_SLEEP:
+        state = PET_STATE_TURN_SOUTH;
+        return;
     case PET_STATE_LIE_DOWN:
     case PET_STATE_SLEEPING:
         /* A tap wakes him: stretch, stand, turn to face you. */
@@ -577,6 +579,19 @@ lv_obj_t *pet_create(lv_obj_t *parent)
 void pet_freeze(bool frozen)
 {
     if (frozen) {
+        /* Lights out: he settles down to sleep wherever he is, so waking the
+           screen always reveals him snoozing (steps or a tap wake him). */
+        switch (state) {
+        case PET_STATE_TURN_LISTEN:
+        case PET_STATE_LISTENING:
+        case PET_STATE_LIE_DOWN:
+        case PET_STATE_SLEEPING:
+            break;
+        default:
+            lv_timer_pause(move_timer);
+            state = PET_STATE_SLEEPING;
+            set_anim(&sleep_set);
+        }
         lv_timer_pause(frame_timer);
         lv_timer_pause(move_timer);
     } else {
