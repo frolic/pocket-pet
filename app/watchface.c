@@ -25,6 +25,7 @@
 #define EXP_FILL_MAX (EXP_BAR_WIDTH - 12)
 
 static lv_obj_t *panel;
+static lv_obj_t *time_shadow;
 static lv_obj_t *time_text;
 static lv_obj_t *name_text;
 static lv_obj_t *right_text;
@@ -35,7 +36,7 @@ static uint32_t steps_total;
 static bool showing_daily;
 
 /* Level is display-only until the EXP system lands. */
-#define LEVEL_TEXT "LV.1"
+#define LEVEL_TEXT "Lv1"
 
 static void show_level_view(void)
 {
@@ -48,9 +49,9 @@ static void show_level_view(void)
 static void show_daily_view(void)
 {
     showing_daily = true;
-    pixel_text_set(name_text, "DAILY");
+    pixel_text_set(name_text, "Daily");
     char text[16];
-    snprintf(text, sizeof(text), "%u/10K", (unsigned)steps_total);
+    snprintf(text, sizeof(text), "%u/10k", (unsigned)steps_total);
     pixel_text_set(right_text, text);
     lv_obj_align(right_text, LV_ALIGN_TOP_RIGHT, -BOX_PAD, TEXT_Y);
 }
@@ -65,6 +66,11 @@ static void revert_to_level_view(lv_timer_t *timer)
 static void box_clicked(lv_event_t *event)
 {
     LV_UNUSED(event);
+    if (showing_daily) {
+        show_level_view();
+        lv_timer_pause(daily_revert_timer);
+        return;
+    }
     show_daily_view();
     lv_timer_reset(daily_revert_timer);
     lv_timer_resume(daily_revert_timer);
@@ -78,6 +84,8 @@ static void refresh_time(lv_timer_t *timer)
     localtime_r(&now, &local);
     char text[8];
     snprintf(text, sizeof(text), "%02d:%02d", local.tm_hour, local.tm_min);
+    pixel_text_set(time_shadow, text);
+    lv_obj_align(time_shadow, LV_ALIGN_TOP_MID, 3, 17);
     pixel_text_set(time_text, text);
     lv_obj_align(time_text, LV_ALIGN_TOP_MID, 0, 14);
 }
@@ -106,7 +114,11 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_t *background = lv_image_create(screen);
     lv_image_set_src(background, field_bg);
 
+    /* Overworld-sign style clock: white with a one-font-pixel black shadow. */
+    time_shadow = pixel_text_create(screen);
+    pixel_text_set_color(time_shadow, lv_color_black());
     time_text = pixel_text_create(screen);
+    pixel_text_set_color(time_text, lv_color_white());
     lv_timer_create(refresh_time, 1000, NULL);
     refresh_time(NULL);
 

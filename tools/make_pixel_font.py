@@ -1,114 +1,108 @@
 #!/usr/bin/env python3
 """
-Generates the HUD's 5x7 pixel font as LVGL glyph images at the scene's
-6px-per-pixel scale (app/sprites/pixel_font.c/.h).
+Generates the HUD font from the FireRed font recreation TTF as LVGL glyph
+sprites (app/sprites/pixel_font.c/.h). Rendered at the font's native pixel
+grid with anti-aliasing off, then nearest-upscaled; advances are
+proportional, straight from the font metrics.
 
 Usage: python3 tools/make_pixel_font.py app/sprites
 """
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).parent))
 from convert_sprites import emit_frame
 
-PIXEL_SIZE = 4
+FONT_PATH = Path(__file__).parent.parent / "assets/fonts/pokemon_fire_red.ttf"
+FONT_SIZE = 16  # the recreation's native pixel grid — other sizes distort
+PIXEL_SIZE = 3
 INK = (56, 48, 48, 255)
 
-# 5 columns x 7 rows, 'X' = ink. Covers the HUD's needs: A-Z 0-9 : . /
-GLYPHS = {
-    "0": [".XXX.", "X...X", "X..XX", "X.X.X", "XX..X", "X...X", ".XXX."],
-    "1": ["..X..", ".XX..", "..X..", "..X..", "..X..", "..X..", ".XXX."],
-    "2": [".XXX.", "X...X", "....X", "...X.", "..X..", ".X...", "XXXXX"],
-    "3": [".XXX.", "X...X", "....X", "..XX.", "....X", "X...X", ".XXX."],
-    "4": ["...X.", "..XX.", ".X.X.", "X..X.", "XXXXX", "...X.", "...X."],
-    "5": ["XXXXX", "X....", "XXXX.", "....X", "....X", "X...X", ".XXX."],
-    "6": ["..XX.", ".X...", "X....", "XXXX.", "X...X", "X...X", ".XXX."],
-    "7": ["XXXXX", "....X", "...X.", "..X..", ".X...", ".X...", ".X..."],
-    "8": [".XXX.", "X...X", "X...X", ".XXX.", "X...X", "X...X", ".XXX."],
-    "9": [".XXX.", "X...X", "X...X", ".XXXX", "....X", "...X.", ".XX.."],
-    "A": [".XXX.", "X...X", "X...X", "XXXXX", "X...X", "X...X", "X...X"],
-    "B": ["XXXX.", "X...X", "X...X", "XXXX.", "X...X", "X...X", "XXXX."],
-    "C": [".XXX.", "X...X", "X....", "X....", "X....", "X...X", ".XXX."],
-    "D": ["XXXX.", "X...X", "X...X", "X...X", "X...X", "X...X", "XXXX."],
-    "E": ["XXXXX", "X....", "X....", "XXXX.", "X....", "X....", "XXXXX"],
-    "F": ["XXXXX", "X....", "X....", "XXXX.", "X....", "X....", "X...."],
-    "G": [".XXX.", "X...X", "X....", "X.XXX", "X...X", "X...X", ".XXXX"],
-    "H": ["X...X", "X...X", "X...X", "XXXXX", "X...X", "X...X", "X...X"],
-    "I": [".XXX.", "..X..", "..X..", "..X..", "..X..", "..X..", ".XXX."],
-    "J": ["..XXX", "...X.", "...X.", "...X.", "...X.", "X..X.", ".XX.."],
-    "K": ["X...X", "X..X.", "X.X..", "XX...", "X.X..", "X..X.", "X...X"],
-    "L": ["X....", "X....", "X....", "X....", "X....", "X....", "XXXXX"],
-    "M": ["X...X", "XX.XX", "X.X.X", "X.X.X", "X...X", "X...X", "X...X"],
-    "N": ["X...X", "XX..X", "X.X.X", "X..XX", "X...X", "X...X", "X...X"],
-    "O": [".XXX.", "X...X", "X...X", "X...X", "X...X", "X...X", ".XXX."],
-    "P": ["XXXX.", "X...X", "X...X", "XXXX.", "X....", "X....", "X...."],
-    "Q": [".XXX.", "X...X", "X...X", "X...X", "X.X.X", "X..X.", ".XX.X"],
-    "R": ["XXXX.", "X...X", "X...X", "XXXX.", "X.X..", "X..X.", "X...X"],
-    "S": [".XXXX", "X....", "X....", ".XXX.", "....X", "....X", "XXXX."],
-    "T": ["XXXXX", "..X..", "..X..", "..X..", "..X..", "..X..", "..X.."],
-    "U": ["X...X", "X...X", "X...X", "X...X", "X...X", "X...X", ".XXX."],
-    "V": ["X...X", "X...X", "X...X", "X...X", "X...X", ".X.X.", "..X.."],
-    "W": ["X...X", "X...X", "X...X", "X.X.X", "X.X.X", "XX.XX", "X...X"],
-    "X": ["X...X", "X...X", ".X.X.", "..X..", ".X.X.", "X...X", "X...X"],
-    "Y": ["X...X", "X...X", ".X.X.", "..X..", "..X..", "..X..", "..X.."],
-    "Z": ["XXXXX", "....X", "...X.", "..X..", ".X...", "X....", "XXXXX"],
-    ":": [".....", "..X..", "..X..", ".....", "..X..", "..X..", "....."],
-    ".": [".....", ".....", ".....", ".....", ".....", "..X..", "..X.."],
-    "/": ["....X", "...X.", "...X.", "..X..", ".X...", ".X...", "X...."],
-}
-
-
-def glyph_image(rows: list) -> Image.Image:
-    image = Image.new("RGBA", (5, 7))
-    pixels = image.load()
-    for y, row in enumerate(rows):
-        for x, cell in enumerate(row):
-            if cell == "X":
-                pixels[x, y] = INK
-    return image.resize((5 * PIXEL_SIZE, 7 * PIXEL_SIZE), Image.NEAREST)
+CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:./!?+-'"
 
 
 def main() -> None:
     out_dir = Path(sys.argv[1])
+    font = ImageFont.truetype(str(FONT_PATH), FONT_SIZE)
+    ascent, descent = font.getmetrics()
+    line_height = ascent + descent
+
+    canvases = {}
+    advances = {}
+    ink_top, ink_bottom = line_height, 0
+    for char in CHARS:
+        advance = round(font.getlength(char))
+        width = max(advance, font.getbbox(char)[2], 1)
+        canvas = Image.new("RGBA", (width, line_height))
+        draw = ImageDraw.Draw(canvas)
+        draw.fontmode = "1"
+        draw.text((0, 0), char, font=font, fill=INK)
+        bbox = canvas.getchannel("A").getbbox()
+        if bbox is not None:
+            ink_top = min(ink_top, bbox[1])
+            ink_bottom = max(ink_bottom, bbox[3])
+        canvases[char] = canvas
+        advances[char] = advance
+    advances[" "] = round(font.getlength(" "))
 
     c_out = [
-        "/* Generated by tools/make_pixel_font.py. Do not edit. */",
+        "/* Generated by tools/make_pixel_font.py from the FireRed font recreation. Do not edit. */",
         '#include "lvgl.h"',
         '#include "pixel_font.h"',
         "",
     ]
     names = {}
-    for char, rows in GLYPHS.items():
+    for char, canvas in canvases.items():
+        # Shared vertical crop keeps every glyph on the same baseline.
+        cropped = canvas.crop((0, ink_top, canvas.width, ink_bottom))
+        scaled = cropped.resize(
+            (cropped.width * PIXEL_SIZE, cropped.height * PIXEL_SIZE), Image.NEAREST
+        )
         name = f"pixel_font_{ord(char)}"
         names[char] = name
-        emit_frame(c_out, name, glyph_image(rows))
+        emit_frame(c_out, name, scaled)
 
     c_out.append("const lv_image_dsc_t *pixel_font_glyph(char c)")
     c_out.append("{")
     c_out.append("    switch (c) {")
     for char, name in sorted(names.items()):
-        c_out.append(f"    case '{char}': return &{name};")
+        escaped = "\\'" if char == "'" else char
+        c_out.append(f"    case '{escaped}': return &{name};")
     c_out.append("    default: return NULL;")
     c_out.append("    }")
     c_out.append("}")
     c_out.append("")
+    c_out.append("int32_t pixel_font_advance(char c)")
+    c_out.append("{")
+    c_out.append("    switch (c) {")
+    for char, advance in sorted(advances.items()):
+        escaped = "\\'" if char == "'" else char
+        c_out.append(f"    case '{escaped}': return {advance * PIXEL_SIZE};")
+    c_out.append("    default: return 0;")
+    c_out.append("    }")
+    c_out.append("}")
+    c_out.append("")
 
+    height = (ink_bottom - ink_top) * PIXEL_SIZE
     h_out = [
-        "/* Generated by tools/make_pixel_font.py. Do not edit. */",
+        "/* Generated by tools/make_pixel_font.py from the FireRed font recreation. Do not edit. */",
         "#pragma once",
         "",
         '#include "lvgl.h"',
         "",
-        "/* 5x7 pixel glyph at scene scale, or NULL for unknown characters. */",
+        f"#define PIXEL_FONT_HEIGHT {height}",
+        "",
+        "/* Glyph sprite (NULL for space/unknown) and its horizontal advance. */",
         "const lv_image_dsc_t *pixel_font_glyph(char c);",
+        "int32_t pixel_font_advance(char c);",
         "",
     ]
 
     (out_dir / "pixel_font.c").write_text("\n".join(c_out) + "\n")
     (out_dir / "pixel_font.h").write_text("\n".join(h_out) + "\n")
-    print(f"{len(names)} glyphs")
+    print(f"{len(names)} glyphs, height {height}px")
 
 
 if __name__ == "__main__":
