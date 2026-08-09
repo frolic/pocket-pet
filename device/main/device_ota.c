@@ -8,6 +8,7 @@
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "device_wifi.h"
+#include "display_sleep.h"
 #include "step_source.h"
 #include "battery_source.h"
 #include "device_debug.h"
@@ -21,7 +22,8 @@
 
 #ifdef FROLIC_OTA_URL
 
-#define OTA_INTERVAL_MS 90000
+#define OTA_INTERVAL_MS 60000
+#define OTA_AWAKE_RETRY_MS 10000
 #define OTA_FIRST_CHECK_MS 20000
 
 static bool fetch_version(char *out, size_t out_size)
@@ -87,6 +89,12 @@ static void ota_task(void *arg)
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(OTA_FIRST_CHECK_MS));
     while (true) {
+        /* Radio only speaks while the screen sleeps: a dark panel has no
+           flushes to corrupt and the user never sees the freeze. */
+        if (!display_sleep_is_asleep()) {
+            vTaskDelay(pdMS_TO_TICKS(OTA_AWAKE_RETRY_MS));
+            continue;
+        }
         if (device_wifi_window_begin(12000)) {
             char version[64];
             if (fetch_version(version, sizeof(version))) {
