@@ -52,6 +52,7 @@ typedef enum {
     PET_STATE_CELEBRATE_PLAY, /* ...and play the celebration animation */
     PET_STATE_TURN_SLEEP,     /* long quiet: turn southwest (the lying art's facing)... */
        /* ...settle down... */
+    PET_STATE_YAWN,           /* post-wake yawn: mouth opens wide, then settles */
     PET_STATE_SLEEPING,       /* ...curled breathing loop; only steps or a tap wake him */
     PET_STATE_WAKING,         /* the stretch-and-stand Wake sequence */
 } pet_state_t;
@@ -85,6 +86,10 @@ static anim_set_t hop_set;
 static anim_set_t breath_set;
 static anim_set_t sleep_set;
 static anim_set_t wake_set;
+static const lv_image_dsc_t *yawn_frames[3];
+static const uint32_t yawn_durations_ms[3] = {350, 1100, 400};
+static anim_set_t yawn_set;
+static bool yawn_pending;      /* set on tap-wake; spent after the turn to camera */
 /* Indexed by sheet-row order: S, SE, E, NE, N, NW, W, SW. */
 static anim_set_t walk_sets[8];
 
@@ -280,6 +285,12 @@ static void advance_frame(lv_timer_t *timer)
         break;
     case PET_STATE_TURN_SOUTH:
         if (facing == FACING_SOUTH) {
+            if (yawn_pending) {
+                yawn_pending = false;
+                state = PET_STATE_YAWN;
+                set_anim(&yawn_set);
+                return;
+            }
             settle_into_idle(!sit_break_returning);
             sit_break_returning = false;
             return;
@@ -342,6 +353,15 @@ static void advance_frame(lv_timer_t *timer)
         }
         face_step_toward(FACING_SOUTHWEST);
         lv_timer_set_period(frame_timer, TURN_STEP_MS);
+        return;
+    case PET_STATE_YAWN:
+        if (frame_index < current_set->count - 1) {
+            frame_index++;
+            show_frame();
+            return;
+        }
+        settle_into_idle(true);
+        sit_break_returning = false;
         return;
     case PET_STATE_SLEEPING:
         /* Curled breathing loop; nothing else happens while he sleeps. */
@@ -502,6 +522,7 @@ static void sprite_clicked(lv_event_t *event)
     case PET_STATE_SLEEPING:
         /* A tap wakes him: stretch, stand, turn to face you. */
         wake_to_wander = false;
+        yawn_pending = true;
         state = PET_STATE_WAKING;
         facing = FACING_WEST; /* the wake stretch art faces west */
         set_anim(&wake_set);
@@ -543,6 +564,10 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     breath_set = (anim_set_t){raichu_breath_frames, raichu_breath_durations_ms, raichu_breath_frame_count};
     sleep_set = (anim_set_t){raichu_sleep_frames, raichu_sleep_durations_ms, raichu_sleep_frame_count};
     wake_set = (anim_set_t){raichu_wake_frames, raichu_wake_durations_ms, raichu_wake_frame_count};
+    yawn_frames[0] = raichu_idle_frames[0];
+    yawn_frames[1] = raichu_yawn_frames[0];
+    yawn_frames[2] = raichu_idle_frames[0];
+    yawn_set = (anim_set_t){yawn_frames, yawn_durations_ms, 3};
     walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
     walk_sets[1] = (anim_set_t){raichu_walk_se_frames, raichu_walk_se_durations_ms, raichu_walk_se_frame_count};
     walk_sets[2] = (anim_set_t){raichu_walk_e_frames, raichu_walk_e_durations_ms, raichu_walk_e_frame_count};
@@ -596,6 +621,7 @@ void pet_freeze(bool frozen)
         case PET_STATE_SLEEPING:
             break;
         default:
+            yawn_pending = false;
             lv_timer_pause(move_timer);
             state = PET_STATE_SLEEPING;
             facing = FACING_SOUTHWEST; /* the curl reads SW; wake turns start there */
@@ -619,6 +645,7 @@ void pet_sleep_now(void)
     case PET_STATE_SLEEPING:
         return;
     default:
+        yawn_pending = false;
         lv_timer_pause(move_timer);
         state = PET_STATE_TURN_SLEEP;
         kick_frame_timer();
@@ -700,6 +727,7 @@ void pet_celebrate(pet_celebration_t kind)
         break;
     }
     celebration_kind = kind;
+    yawn_pending = false;
     lv_timer_pause(move_timer);
     called_over = false;
     state = PET_STATE_TURN_CELEBRATE;
@@ -708,6 +736,7 @@ void pet_celebrate(pet_celebration_t kind)
 
 void pet_listen_start(void)
 {
+    yawn_pending = false;
     lv_timer_pause(move_timer);
     switch (state) {
     case PET_STATE_SIT_DOWN:

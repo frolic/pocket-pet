@@ -37,6 +37,10 @@ extern const lv_image_dsc_t *const raichu_sleep_frames[];
 extern const uint32_t raichu_sleep_durations_ms[];
 extern const uint32_t raichu_sleep_frame_count;
 
+extern const lv_image_dsc_t *const raichu_yawn_frames[];
+extern const uint32_t raichu_yawn_durations_ms[];
+extern const uint32_t raichu_yawn_frame_count;
+
 extern const lv_image_dsc_t *const raichu_wake_frames[];
 extern const uint32_t raichu_wake_durations_ms[];
 extern const uint32_t raichu_wake_frame_count;

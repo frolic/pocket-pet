@@ -25,6 +25,7 @@ ANIMS = [
     {"anim": "Hop", "row": 0, "name": "hop"},
     {"anim": "DeepBreath", "row": 0, "name": "breath"},
     {"anim": "Sleep", "row": 0, "name": "sleep"},
+    {"anim": "Eat", "row": 0, "name": "yawn"},
     {"anim": "Wake", "row": 6, "name": "wake"},
 ] + [
     {"anim": "Walk", "row": row, "name": f"walk_{direction}"}
