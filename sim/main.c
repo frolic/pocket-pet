@@ -38,6 +38,20 @@ int main(void)
 
     fake_step_source_start();
     frolic_app_init(panel);
+
+    /* Rounded-glass preview: black mask whose inner window uses the corner
+       radius from the mechanical drawing (R4.5mm ≈ 56px at this panel's
+       0.081mm pixel pitch). Sim-only. */
+    lv_obj_t *bezel = lv_obj_create(panel);
+    lv_obj_remove_style_all(bezel);
+    lv_obj_set_size(bezel, SCREEN_WIDTH + 200, SCREEN_HEIGHT + 200);
+    lv_obj_set_pos(bezel, -100, -100);
+    lv_obj_set_style_radius(bezel, 156, 0);
+    lv_obj_set_style_border_width(bezel, 100, 0);
+    lv_obj_set_style_border_color(bezel, lv_color_black(), 0);
+    lv_obj_remove_flag(bezel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(bezel, LV_OBJ_FLAG_SCROLLABLE);
+
     debug_panel_create(lv_screen_active());
 
     /*

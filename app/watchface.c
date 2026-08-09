@@ -14,15 +14,15 @@
 #define RECORD_COLOR lv_color_hex(0xD93A2F)
 
 /* Sizes match the generated pixel-art chrome (tools/make_hud.py). */
-#define BOX_WIDTH 360
-#define BOX_HEIGHT 96
+#define BOX_WIDTH 304
+#define BOX_HEIGHT 72
 #define BOX_MARGIN 24
-#define BOX_PAD 18
-#define TEXT_Y 20
-#define EXP_BAR_WIDTH 324
-#define EXP_BAR_HEIGHT 24
-#define EXP_BAR_Y (BOX_HEIGHT - EXP_BAR_HEIGHT - 12)
-#define EXP_FILL_MAX (EXP_BAR_WIDTH - 12)
+#define BOX_PAD 14
+#define TEXT_Y 14
+#define EXP_BAR_WIDTH 272
+#define EXP_BAR_HEIGHT 16
+#define EXP_BAR_Y (BOX_HEIGHT - EXP_BAR_HEIGHT - 8)
+#define EXP_FILL_MAX (EXP_BAR_WIDTH - 8)
 
 static lv_obj_t *panel;
 static lv_obj_t *time_shadow;
@@ -152,8 +152,8 @@ void watchface_create(lv_obj_t *parent)
     exp_fill = lv_obj_create(box);
     lv_obj_remove_style_all(exp_fill);
     lv_obj_remove_flag(exp_fill, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(exp_fill, 0, EXP_BAR_HEIGHT - 12);
-    lv_obj_set_pos(exp_fill, (BOX_WIDTH - EXP_BAR_WIDTH) / 2 + 6, EXP_BAR_Y + 6);
+    lv_obj_set_size(exp_fill, 0, EXP_BAR_HEIGHT - 8);
+    lv_obj_set_pos(exp_fill, (BOX_WIDTH - EXP_BAR_WIDTH) / 2 + 4, EXP_BAR_Y + 4);
     lv_obj_set_style_bg_color(exp_fill, EXP_FILL_COLOR, 0);
     lv_obj_set_style_bg_opa(exp_fill, LV_OPA_COVER, 0);
 
@@ -179,7 +179,7 @@ void watchface_set_steps(uint32_t total)
         if (!showing_daily) show_level_view();
     }
     uint32_t fill = (uint64_t)(total % STEP_GOAL) * EXP_FILL_MAX / STEP_GOAL;
-    lv_obj_set_width(exp_fill, (int32_t)(fill / 6 * 6));
+    lv_obj_set_width(exp_fill, (int32_t)(fill / 4 * 4));
 }
 
 void watchface_set_recording(bool recording)

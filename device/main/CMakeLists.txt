@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS
         "main.c"
-        "device_time.c"
+        "device_wifi.c"
         "device_button_source.c"
         "device_step_source.c"
         "../../app/frolic_app.c"
@@ -14,5 +14,5 @@ idf_component_register(
         "../../app/sprites/hud_box.c"
         "../../app/sprites/pixel_font.c"
     INCLUDE_DIRS "." "../../app"
-    REQUIRES driver esp_wifi esp_netif esp_event nvs_flash lwip
+    REQUIRES driver esp_wifi esp_netif esp_event esp_http_server nvs_flash lwip
 )

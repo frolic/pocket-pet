@@ -4,7 +4,7 @@
 #include "nvs_flash.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
-#include "device_time.h"
+#include "device_wifi.h"
 #include "frolic_app.h"
 
 void app_main(void)
@@ -20,5 +20,5 @@ void app_main(void)
     frolic_app_init(lv_screen_active());
     bsp_display_unlock();
 
-    device_time_start();
+    device_wifi_start();
 }
