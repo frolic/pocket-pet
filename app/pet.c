@@ -115,6 +115,10 @@ static uint32_t ack_nods_left;
 
 static void hop(int32_t height);
 
+/* Entering idle restarts the quiet countdown — without this, a wake or
+   interaction after a long quiet spell re-triggers sleep instantly. */
+static void settle_into_idle(void);
+
 /* Frames ship native-res and are upscaled on demand into ping-pong scratch
    buffers (alternating src pointers so LVGL sees every change). */
 static lv_image_dsc_t frame_scratch[2];
@@ -163,6 +167,13 @@ static int heading_row(float velocity_x, float velocity_y)
     float degrees = atan2f(velocity_y, velocity_x) * 180.0f / (float)M_PI;
     int octant = ((int)lroundf(degrees / 45.0f) + 8) % 8;
     return row_for_octant[octant];
+}
+
+static void settle_into_idle(void)
+{
+    state = PET_STATE_IDLE;
+    set_anim(&idle_set);
+    last_step_tick = lv_tick_get() - WALK_LINGER_MS;
 }
 
 /* One 45-degree facing step toward `toward`, along the shorter rotation. */
@@ -262,8 +273,7 @@ static void advance_frame(lv_timer_t *timer)
         break;
     case PET_STATE_TURN_SOUTH:
         if (facing == FACING_SOUTH) {
-            state = PET_STATE_IDLE;
-            set_anim(&idle_set);
+            settle_into_idle();
             return;
         }
         face_step_toward(FACING_SOUTH);
@@ -443,8 +453,7 @@ static void advance_frame(lv_timer_t *timer)
         frame_index++;
         if (frame_index >= current_set->count) {
             if (--celebrate_loops_left == 0) {
-                state = PET_STATE_IDLE;
-                set_anim(&idle_set);
+                settle_into_idle();
                 lv_timer_reset(frame_timer);
                 return;
             }
