@@ -117,20 +117,25 @@ static void dns_hijack_task(void *arg)
     }
 }
 
-static const char PORTAL_PAGE[] =
+static const char PORTAL_HEAD[] =
     "<!DOCTYPE html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
     "<title>pocket pikachu</title><style>"
     "body{font-family:-apple-system,sans-serif;background:#88c878;margin:0;padding:24px;}"
     ".card{max-width:340px;margin:40px auto;background:#f8f8e8;border:4px solid #585048;"
     "border-radius:12px;padding:24px;}h1{font-size:20px;margin:0 0 4px;}p{color:#585048;margin:0 0 16px;}"
-    "input{width:100%;box-sizing:border-box;font-size:16px;padding:10px;margin:6px 0 14px;"
+    "input,select{width:100%;box-sizing:border-box;font-size:16px;padding:10px;margin:6px 0 14px;"
     "border:2px solid #585048;border-radius:8px;background:#fff;}"
     "button{width:100%;font-size:16px;padding:12px;background:#f8d030;border:2px solid #585048;"
     "border-radius:8px;font-weight:700;}"
     "</style></head><body><div class=card><h1>&#9889; pocket pikachu</h1>"
-    "<p>Tell Raichu which wifi to use. He'll remember it and reboot.</p>"
+    "<p>Pick the wifi Raichu should use. He'll remember it and reboot.</p>"
     "<form method=POST action=/save>"
-    "<label>Network name<input name=ssid autocapitalize=off autocorrect=off required></label>"
+    "<label>Network<select name=ssid onchange=\"document.getElementById('o').style.display=this.value?'none':'block'\">";
+
+static const char PORTAL_TAIL[] =
+    "<option value=''>Other...</option></select></label>"
+    "<div id=o style='display:none'><label>Network name"
+    "<input name=ssid_other autocapitalize=off autocorrect=off></label></div>"
     "<label>Password<input name=password type=password></label>"
     "<button>Save &amp; restart</button></form></div></body></html>";
 
@@ -157,11 +162,37 @@ static void url_decode(char *text)
     *out = '\0';
 }
 
+/* Scan from APSTA mode so the dropdown lists nearby networks by strength. */
 static esp_err_t portal_get_handler(httpd_req_t *request)
 {
     if (strcmp(request->uri, "/") == 0) {
         httpd_resp_set_type(request, "text/html");
-        return httpd_resp_send(request, PORTAL_PAGE, HTTPD_RESP_USE_STRLEN);
+        httpd_resp_send_chunk(request, PORTAL_HEAD, HTTPD_RESP_USE_STRLEN);
+
+        wifi_scan_config_t scan_config = {0};
+        if (esp_wifi_scan_start(&scan_config, true) == ESP_OK) {
+            wifi_ap_record_t records[20];
+            uint16_t count = 20;
+            esp_wifi_scan_get_ap_records(&count, records);
+            char seen[20][33] = {0};
+            int seen_count = 0;
+            for (int i = 0; i < count && seen_count < 20; i++) {
+                const char *name = (const char *)records[i].ssid;
+                if (name[0] == '\0') continue;
+                bool duplicate = false;
+                for (int j = 0; j < seen_count; j++) {
+                    if (strcmp(seen[j], name) == 0) duplicate = true;
+                }
+                if (duplicate) continue;
+                strlcpy(seen[seen_count++], name, 33);
+                char option[96];
+                snprintf(option, sizeof(option), "<option>%s</option>", name);
+                httpd_resp_send_chunk(request, option, HTTPD_RESP_USE_STRLEN);
+            }
+        }
+
+        httpd_resp_send_chunk(request, PORTAL_TAIL, HTTPD_RESP_USE_STRLEN);
+        return httpd_resp_send_chunk(request, NULL, 0);
     }
     /* Captive-portal probes and everything else: bounce to the form. */
     httpd_resp_set_status(request, "302 Found");
@@ -184,6 +215,9 @@ static esp_err_t portal_save_handler(httpd_req_t *request)
     char ssid[64] = {0};
     char password[96] = {0};
     httpd_query_key_value(body, "ssid", ssid, sizeof(ssid));
+    if (ssid[0] == '\0') {
+        httpd_query_key_value(body, "ssid_other", ssid, sizeof(ssid));
+    }
     httpd_query_key_value(body, "password", password, sizeof(password));
     url_decode(ssid);
     url_decode(password);
@@ -208,7 +242,7 @@ static void portal_start(void)
             .max_connection = 4,
         },
     };
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
