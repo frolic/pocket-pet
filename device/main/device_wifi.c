@@ -126,8 +126,13 @@ static bool station_ever_connected;
 static void station_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_START || id == WIFI_EVENT_STA_DISCONNECTED)) {
+        if (id == WIFI_EVENT_STA_DISCONNECTED) {
+            wifi_event_sta_disconnected_t *event = data;
+            printf("device_wifi: disconnected from '%.32s' reason=%d rssi=%d\n",
+                   (const char *)event->ssid, (int)event->reason, (int)event->rssi);
+        }
         if (id == WIFI_EVENT_STA_DISCONNECTED && !station_ever_connected) {
-            int limit = get_u8("validating") ? 8 : 15;
+            int limit = 15;
             if (++station_failures >= limit) {
                 printf("device_wifi: cannot join '%s' — rebooting into setup portal\n", stored_ssid);
                 char message[96];
@@ -319,7 +324,10 @@ static esp_err_t portal_save_handler(httpd_req_t *request)
     httpd_query_key_value(body, "password", password, sizeof(password));
     url_decode(ssid);
     url_decode(password);
-    if (ssid[0] != '\0') save_credentials(ssid, password);
+    if (ssid[0] != '\0') {
+        printf("device_wifi: saving ssid='%s' password_length=%d\n", ssid, (int)strlen(password));
+        save_credentials(ssid, password);
+    }
 
     httpd_resp_set_type(request, "text/html");
     httpd_resp_send(request, SAVED_PAGE, HTTPD_RESP_USE_STRLEN);
