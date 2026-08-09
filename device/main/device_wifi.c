@@ -169,6 +169,14 @@ static void station_start(void)
     wifi_config_t config = {0};
     strlcpy((char *)config.sta.ssid, stored_ssid, sizeof(config.sta.ssid));
     strlcpy((char *)config.sta.password, stored_password, sizeof(config.sta.password));
+    /* WPA2/WPA3-transition routers reject non-PMF clients with AUTH_FAIL
+       (reason 202) — a zeroed config disables PMF capability. */
+    config.sta.pmf_cfg.capable = true;
+    config.sta.pmf_cfg.required = false;
+    /* Mesh networks broadcast several BSSIDs; scan all channels and take
+       the strongest 2.4GHz one. */
+    config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config));
     ESP_ERROR_CHECK(esp_wifi_start());
