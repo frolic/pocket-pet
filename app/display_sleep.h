@@ -20,5 +20,8 @@ bool display_sleep_is_asleep(void);
 /* Any user activity: postpones (or does nothing if already asleep). */
 void display_sleep_poke(void);
 
-/* Wakes the display (side button). */
+/* Wakes the display (power button). */
 void display_sleep_wake(void);
+
+/* Sleeps immediately (power button toggle). */
+void display_sleep_sleep_now(void);

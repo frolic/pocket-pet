@@ -55,6 +55,11 @@ void display_sleep_poke(void)
     lv_display_trigger_activity(NULL);
 }
 
+void display_sleep_sleep_now(void)
+{
+    if (!asleep) go_to_sleep();
+}
+
 void display_sleep_wake(void)
 {
     if (!asleep) return;

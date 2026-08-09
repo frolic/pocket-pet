@@ -2,6 +2,7 @@
 #include "debug_panel.h"
 #include "fake_step_source.h"
 #include "../app/button_source.h"
+#include "../app/power_button.h"
 #include "../app/pet.h"
 
 static bool record_held;
@@ -17,6 +18,21 @@ static void steps_clicked(lv_event_t *event)
 {
     LV_UNUSED(event);
     fake_step_source_add(2500);
+}
+
+static bool power_pressed;
+
+static void power_clicked(lv_event_t *event)
+{
+    LV_UNUSED(event);
+    power_pressed = true;
+}
+
+bool power_button_pressed(void)
+{
+    bool pressed = power_pressed;
+    power_pressed = false;
+    return pressed;
 }
 
 static void celebrate_clicked(lv_event_t *event)
@@ -58,6 +74,9 @@ void debug_panel_create(lv_obj_t *parent)
 
     lv_obj_t *record_button = make_button(rail, "REC\n(hold)");
     lv_obj_add_event_cb(record_button, record_event, LV_EVENT_ALL, NULL);
+
+    lv_obj_t *power_button = make_button(rail, "PWR");
+    lv_obj_add_event_cb(power_button, power_clicked, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *steps_button = make_button(rail, "+2500 steps");
     lv_obj_add_event_cb(steps_button, steps_clicked, LV_EVENT_CLICKED, NULL);
