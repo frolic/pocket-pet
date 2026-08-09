@@ -1,2 +1,7 @@
 build/
 .DS_Store
+device/main/wifi_credentials.h
+device/build/
+device/sdkconfig
+device/managed_components/
+device/dependencies.lock

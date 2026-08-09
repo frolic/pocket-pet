@@ -14,12 +14,12 @@
 #define RECORD_COLOR lv_color_hex(0xD93A2F)
 
 /* Sizes match the generated pixel-art chrome (tools/make_hud.py). */
-#define BOX_WIDTH 384
+#define BOX_WIDTH 360
 #define BOX_HEIGHT 96
-#define BOX_MARGIN 12
+#define BOX_MARGIN 24
 #define BOX_PAD 18
 #define TEXT_Y 20
-#define EXP_BAR_WIDTH 348
+#define EXP_BAR_WIDTH 324
 #define EXP_BAR_HEIGHT 24
 #define EXP_BAR_Y (BOX_HEIGHT - EXP_BAR_HEIGHT - 12)
 #define EXP_FILL_MAX (EXP_BAR_WIDTH - 12)
@@ -85,9 +85,9 @@ static void refresh_time(lv_timer_t *timer)
     char text[8];
     snprintf(text, sizeof(text), "%02d:%02d", local.tm_hour, local.tm_min);
     pixel_text_set(time_shadow, text);
-    lv_obj_align(time_shadow, LV_ALIGN_TOP_MID, 3, 17);
+    lv_obj_align(time_shadow, LV_ALIGN_TOP_MID, 3, 27);
     pixel_text_set(time_text, text);
-    lv_obj_align(time_text, LV_ALIGN_TOP_MID, 0, 14);
+    lv_obj_align(time_text, LV_ALIGN_TOP_MID, 0, 24);
 }
 
 static void field_clicked(lv_event_t *event)

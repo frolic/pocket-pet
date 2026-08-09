@@ -17,8 +17,8 @@ from convert_sprites import emit_frame
 
 PIXEL_SIZE = 6
 
-BOX_UNITS = (64, 16)   # 384 x 96 on screen
-BAR_UNITS = (58, 4)    # 348 x 24 on screen
+BOX_UNITS = (60, 16)   # 360 x 96 on screen (inset for the rounded panel)
+BAR_UNITS = (54, 4)    # 324 x 24 on screen
 
 FILL = (248, 248, 232, 255)
 BORDER = (88, 80, 72, 255)
