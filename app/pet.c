@@ -510,6 +510,7 @@ static void sprite_clicked(lv_event_t *event)
         /* A tap wakes him: stretch, stand, turn to face you. */
         wake_to_wander = false;
         state = PET_STATE_WAKING;
+        facing = FACING_SOUTHWEST;
         set_anim(&wake_set);
         kick_frame_timer();
         return;
@@ -606,6 +607,7 @@ void pet_freeze(bool frozen)
         default:
             lv_timer_pause(move_timer);
             state = PET_STATE_SLEEPING;
+            facing = FACING_SOUTHWEST; /* the curl reads SW; wake turns start there */
             set_anim(&sleep_set);
         }
         lv_timer_pause(frame_timer);
@@ -669,6 +671,7 @@ void pet_notice_steps(uint32_t delta)
         /* Steps wake him: stretch, then off we go. */
         wake_to_wander = true;
         state = PET_STATE_WAKING;
+        facing = FACING_SOUTHWEST;
         set_anim(&wake_set);
         kick_frame_timer();
         break;
