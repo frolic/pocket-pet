@@ -40,13 +40,14 @@ int main(void)
     frolic_app_init(panel);
 
     /* Rounded-glass preview: black mask whose inner window uses the corner
-       radius from the mechanical drawing (R4.5mm ≈ 56px at this panel's
+       radius eyeballed against the real panel (the drawing's R4.5mm is the
+       case corner; the visible glass rounds much deeper — ~100px at this
        0.081mm pixel pitch). Sim-only. */
     lv_obj_t *bezel = lv_obj_create(panel);
     lv_obj_remove_style_all(bezel);
     lv_obj_set_size(bezel, SCREEN_WIDTH + 200, SCREEN_HEIGHT + 200);
     lv_obj_set_pos(bezel, -100, -100);
-    lv_obj_set_style_radius(bezel, 156, 0);
+    lv_obj_set_style_radius(bezel, 200, 0);
     lv_obj_set_style_border_width(bezel, 100, 0);
     lv_obj_set_style_border_color(bezel, lv_color_black(), 0);
     lv_obj_remove_flag(bezel, LV_OBJ_FLAG_CLICKABLE);

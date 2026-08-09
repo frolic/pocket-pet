@@ -179,7 +179,7 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_set_size(record_dot, 18, 18);
     lv_obj_set_style_bg_color(record_dot, RECORD_COLOR, 0);
     lv_obj_set_style_bg_opa(record_dot, LV_OPA_COVER, 0);
-    lv_obj_align(record_dot, LV_ALIGN_TOP_RIGHT, -72, 19);
+    lv_obj_align(record_dot, LV_ALIGN_TOP_RIGHT, -92, 27);
     lv_obj_add_flag(record_dot, LV_OBJ_FLAG_HIDDEN);
 
     /* Battery: outlined body with a nub, level bar inside. Flat siblings in
@@ -188,7 +188,7 @@ void watchface_create(lv_obj_t *parent)
     battery_root = lv_obj_create(screen);
     lv_obj_remove_style_all(battery_root);
     lv_obj_set_size(battery_root, 10 * BATTERY_PX, 5 * BATTERY_PX);
-    lv_obj_align(battery_root, LV_ALIGN_TOP_RIGHT, -20, 18);
+    lv_obj_align(battery_root, LV_ALIGN_TOP_RIGHT, -40, 26);
     lv_obj_add_flag(battery_root, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *battery_body = lv_obj_create(battery_root);
