@@ -129,6 +129,9 @@ static void station_start(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    /* Modem power-save transitions glitch the QSPI display pipeline —
+       keep the radio awake (worth the power on this battery budget). */
+    esp_wifi_set_ps(WIFI_PS_NONE);
 }
 
 /* ---------- captive portal (setup mode) ---------- */
@@ -336,6 +339,7 @@ static void portal_start(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    esp_wifi_set_ps(WIFI_PS_NONE);
 
     /* Offer ourselves as DNS in DHCP leases — without this clients have no
        DNS at all, the captive probe never resolves, and no sheet appears. */

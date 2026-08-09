@@ -52,6 +52,19 @@ static void heartbeat_task(void *arg)
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
                (unsigned)failures, (unsigned)(failures - flush_failures_reported),
                (int)mode);
+        /* Self-heal: a sustained flush-failure storm means the SPI pipeline
+           wedged (it never recovers on its own) — restart clears it. */
+        static int storm_beats;
+        if (failures - flush_failures_reported > 100) {
+            if (++storm_beats >= 3) {
+                printf("SELF-HEAL: flush pipeline wedged (%u failures) — restarting\n",
+                       (unsigned)failures);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                esp_restart();
+            }
+        } else {
+            storm_beats = 0;
+        }
         flush_failures_reported = failures;
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
