@@ -117,7 +117,7 @@ static void hop(int32_t height);
 
 /* Entering idle restarts the quiet countdown — without this, a wake or
    interaction after a long quiet spell re-triggers sleep instantly. */
-static void settle_into_idle(void);
+static void settle_into_idle(bool restart_quiet);
 
 /* Frames ship native-res and are upscaled on demand into ping-pong scratch
    buffers (alternating src pointers so LVGL sees every change). */
@@ -169,10 +169,19 @@ static int heading_row(float velocity_x, float velocity_y)
     return row_for_octant[octant];
 }
 
-static void settle_into_idle(void)
+/* quiet_anchor: when the current awake-quiet stretch began (sleep fires 45s
+   after it; sit-breaks must NOT reset it or sleep never arrives).
+   idle_entry_tick: this idle entry (gates sit-breaks right after waking). */
+static uint32_t quiet_anchor;
+static uint32_t idle_entry_tick;
+static bool sit_break_returning;
+
+static void settle_into_idle(bool restart_quiet)
 {
     state = PET_STATE_IDLE;
     set_anim(&idle_set);
+    idle_entry_tick = lv_tick_get();
+    if (restart_quiet) quiet_anchor = idle_entry_tick;
     last_step_tick = lv_tick_get() - WALK_LINGER_MS;
 }
 
@@ -273,21 +282,24 @@ static void advance_frame(lv_timer_t *timer)
         break;
     case PET_STATE_TURN_SOUTH:
         if (facing == FACING_SOUTH) {
-            settle_into_idle();
+            settle_into_idle(!sit_break_returning);
+            sit_break_returning = false;
             return;
         }
         face_step_toward(FACING_SOUTH);
         lv_timer_set_period(frame_timer, TURN_STEP_MS);
         return;
     case PET_STATE_IDLE:
-        if (lv_tick_elaps(last_step_tick) > WALK_LINGER_MS + SLEEP_QUIET_MS) {
+        if (lv_tick_elaps(quiet_anchor) > SLEEP_QUIET_MS) {
             state = PET_STATE_TURN_SLEEP;
             lv_timer_set_period(frame_timer, TURN_STEP_MS);
             return;
         }
         if (frame_index == 0) {
-            /* A rest hold just ended: usually bounce, sometimes sit a moment. */
-            if (rand() % 100 < SIT_BREAK_CHANCE_PCT) {
+            /* A rest hold just ended: usually bounce, sometimes sit a moment
+               (but never within a few seconds of arriving in idle). */
+            if (lv_tick_elaps(idle_entry_tick) > 6000 &&
+                rand() % 100 < SIT_BREAK_CHANCE_PCT) {
                 state = PET_STATE_TURN_NORTH;
                 lv_timer_set_period(frame_timer, TURN_STEP_MS);
                 return;
@@ -325,6 +337,7 @@ static void advance_frame(lv_timer_t *timer)
     case PET_STATE_SEATED:
         /* Sits are always brief now; the hold period was set on entry. */
         stand_up_to_wander = false;
+        sit_break_returning = true;
         state = PET_STATE_STAND_UP;
         lv_timer_set_period(frame_timer, 1);
         return;
@@ -453,7 +466,7 @@ static void advance_frame(lv_timer_t *timer)
         frame_index++;
         if (frame_index >= current_set->count) {
             if (--celebrate_loops_left == 0) {
-                settle_into_idle();
+                settle_into_idle(true);
                 lv_timer_reset(frame_timer);
                 return;
             }
@@ -492,6 +505,7 @@ static void sprite_clicked(lv_event_t *event)
     case PET_STATE_SEATED:
         /* A tap while sitting stands him up. */
         stand_up_to_wander = false;
+        sit_break_returning = false;
         state = PET_STATE_STAND_UP;
         kick_frame_timer();
         return;
