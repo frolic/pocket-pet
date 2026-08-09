@@ -12,3 +12,6 @@ void device_wifi_start(void);
 
 /* True when running the setup portal instead of normal station mode. */
 bool device_wifi_in_portal(void);
+
+/* True while the radio is up (portal, or station until the post-sync stop). */
+bool device_wifi_radio_active(void);

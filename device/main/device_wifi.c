@@ -41,6 +41,7 @@ static char stored_ssid[33];
 static char stored_password[65];
 static char last_error[96];
 static bool in_portal;
+static bool radio_active;
 
 /* ---------- NVS ---------- */
 
@@ -140,6 +141,7 @@ static void radio_off_timer_cb(void *arg)
     printf("device_wifi: clock synced — radio off until next sync window\n");
     esp_sntp_stop();
     esp_wifi_stop();
+    radio_active = false;
 }
 
 static void on_time_synced(struct timeval *tv)
@@ -218,6 +220,7 @@ static void station_start(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    radio_active = true;
     /* Modem power-save transitions can glitch the QSPI display pipeline. */
     esp_wifi_set_ps(WIFI_PS_NONE);
     WIFI_TRACE("station_start done ssid='%s' password_length=%d pmf_capable=1\n",
@@ -434,11 +437,17 @@ static void portal_start(void)
     httpd_register_uri_handler(server, &any_uri);
     printf("device_wifi: setup portal at http://%s (join '%s')\n", PORTAL_IP, SETUP_SSID);
     in_portal = true;
+    radio_active = true;
 }
 
 bool device_wifi_in_portal(void)
 {
     return in_portal;
+}
+
+bool device_wifi_radio_active(void)
+{
+    return radio_active;
 }
 
 void device_wifi_start(void)
