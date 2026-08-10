@@ -532,13 +532,12 @@ static lv_display_t *bsp_display_lcd_init()
         },
         .flags = {
             .sw_rotate = true,
-            /* Vendored change: draw buffer in internal DMA memory. PSRAM
-               draw buffers scramble under flush: GDMA reads race CPU
-               writes/cache write-back (block-shuffled sprites). Internal
-               is affordable now that the device state machine guarantees
-               the radio never runs while the screen flushes. */
-            .buff_dma = true,
-            .buff_spiram = false,
+            /* Vendored change: PSRAM draw buffer. Empirical matrix: internal
+               DMA buffers stripe the panel; PSRAM buffers at 80MHz scramble
+               sprite reads (marginal MSPI timing); PSRAM at 40MHz is the
+               clean combination. */
+            .buff_dma = false,
+            .buff_spiram = true,
 #if CONFIG_BSP_DISPLAY_LVGL_FULL_REFRESH
             .full_refresh = 1,
 #elif CONFIG_BSP_DISPLAY_LVGL_DIRECT_MODE

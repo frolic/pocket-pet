@@ -46,22 +46,31 @@ static void apply_power(void)
 }
 
 /* UI invariants for the new state. Callers in LVGL context (the display
-   sleep callback) must pass in_lvgl_context=true to skip the display lock. */
+   sleep callback) must pass in_lvgl_context=true to skip the display lock.
+
+   Radio-visible states render ZERO pixels: draw the final banner frame,
+   flush it, then stop LVGL's timer engine until the radio is gone. "Mostly
+   static" still flushes occasionally, and any flush during radio can
+   corrupt on this board — the invariant must hold by construction. */
 static void apply_ui(bool in_lvgl_context)
 {
     bool paused;
+    bool renderer_running;
     const char *banner;
     switch (current) {
     case DEVICE_STATE_SYNC_VISIBLE:
         paused = true;
+        renderer_running = false;
         banner = "SYNCING";
         break;
     case DEVICE_STATE_PORTAL:
         paused = true;
+        renderer_running = false;
         banner = "WIFI SETUP";
         break;
     case DEVICE_STATE_ACTIVE:
         paused = false;
+        renderer_running = true;
         banner = NULL;
         break;
     default:
@@ -69,8 +78,16 @@ static void apply_ui(bool in_lvgl_context)
         return;
     }
     if (!in_lvgl_context) bsp_display_lock(0);
-    pet_set_paused(paused);
-    watchface_set_banner(banner);
+    if (renderer_running) {
+        lv_timer_enable(true);
+        pet_set_paused(paused);
+        watchface_set_banner(banner);
+    } else {
+        pet_set_paused(paused);
+        watchface_set_banner(banner);
+        lv_refr_now(NULL); /* land the frozen frame... */
+        lv_timer_enable(false); /* ...then stop the renderer cold */
+    }
     if (!in_lvgl_context) bsp_display_unlock();
 }
 
