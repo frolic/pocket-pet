@@ -10,3 +10,9 @@ void device_debug_start(void);
 
 /* Total dropped display flushes since boot (tearing indicator). */
 uint32_t device_debug_flush_failure_count(void);
+
+/* Silences periodic serial prints (heartbeat etc.) during bulk dumps —
+   interleaved lines corrupt the base64 snapshot stream. */
+void device_debug_set_quiet(bool quiet);
+
+bool device_debug_quiet(void);

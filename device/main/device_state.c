@@ -8,9 +8,13 @@
 #include "device_power.h"
 #include "device_axp2101.h"
 #include "pet.h"
+#include "display_sleep.h"
 #include "watchface.h"
 #include "device_wifi.h"
+#include "device_flush_gate.h"
 #include "device_touch_raw.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
 #include "power_button.h"
 
 /*
@@ -29,6 +33,12 @@
 
 static device_state_t current = DEVICE_STATE_ACTIVE;
 static SemaphoreHandle_t state_mutex;
+static uint32_t radio_state_entered_ms;
+
+/* Radio states must be transient (PORTAL excepted — the user is driving).
+   A hung window otherwise leaves the gate closed forever: frozen banner,
+   frozen clock, dead watch face. */
+#define RADIO_STATE_TIMEOUT_MS 60000
 
 static const char *state_name(device_state_t state)
 {
@@ -80,6 +90,10 @@ static void apply_ui(bool in_lvgl_context)
     pet_set_paused(paused);
     watchface_set_banner(banner);
     watchface_show_setup_modal(current == DEVICE_STATE_PORTAL);
+    /* Setup keeps the screen on; the gate means a timeout could never
+       redraw the wake. */
+    display_sleep_set_hold(current == DEVICE_STATE_PORTAL ||
+                           current == DEVICE_STATE_SYNC_VISIBLE);
     if (!in_lvgl_context) bsp_display_unlock();
 }
 
@@ -91,6 +105,9 @@ static bool transition(device_state_t next)
     if (next == current) return false;
     printf("device_state: %s -> %s\n", state_name(current), state_name(next));
     current = next;
+    if (next == DEVICE_STATE_SYNCING || next == DEVICE_STATE_SYNC_VISIBLE) {
+        radio_state_entered_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    }
     apply_power();
     return true;
 }
@@ -208,6 +225,16 @@ static void housekeeping_task(void *arg)
             bsp_display_lock(0);
             watchface_set_wifi_offline(device_wifi_is_offline());
             bsp_display_unlock();
+        }
+        if (current == DEVICE_STATE_SYNCING || current == DEVICE_STATE_SYNC_VISIBLE) {
+            uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+            if (now - radio_state_entered_ms > RADIO_STATE_TIMEOUT_MS) {
+                printf("device_state: WATCHDOG — stuck in %s, force-releasing\n",
+                       state_name(current));
+                esp_wifi_stop();
+                device_flush_gate_open();
+                device_state_release_radio();
+            }
         }
     }
 }

@@ -1,3 +1,5 @@
+#include <stdlib.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -43,8 +45,8 @@ void app_main(void)
         .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,
         .double_buffer = BSP_LCD_DRAW_BUFF_DOUBLE,
         .flags = {
-            .buff_dma = false,
-            .buff_spiram = true,
+            .buff_dma = true,
+            .buff_spiram = false,
         }};
     display_config.lvgl_port_cfg.task_affinity = 1;
     bsp_display_start_with_config(&display_config);
@@ -58,10 +60,14 @@ void app_main(void)
 #endif
     bsp_display_unlock();
 
-#ifndef FROLIC_DISABLE_WIFI
+    /* London time regardless of wifi (SNTP normally sets this up). */
+    setenv("TZ", "GMT0BST,M3.5.0/1,M10.5.0", 1);
+    tzset();
+
     device_power_init();
     device_state_init();
     device_debug_console_start();
+#ifndef FROLIC_DISABLE_WIFI
     device_wifi_start();
     device_ota_start();
 #endif

@@ -532,12 +532,15 @@ static lv_display_t *bsp_display_lcd_init()
         },
         .flags = {
             .sw_rotate = true,
-            /* Vendored change: PSRAM draw buffer. Empirical matrix: internal
-               DMA buffers stripe the panel; PSRAM buffers at 80MHz scramble
-               sprite reads (marginal MSPI timing); PSRAM at 40MHz is the
-               clean combination. */
-            .buff_dma = false,
-            .buff_spiram = true,
+            /* Small internal DMA buffer. Root causes (researched): esp-bsp
+               issue #716 — PSRAM draw buffers are chunked and flush_ready
+               fires per-chunk, so LVGL repaints a buffer still queued on
+               QSPI (block-scramble); and esp_lcd needs internal staging
+               buffers for PSRAM color transfers, which starve when wifi
+               claims internal RAM ("spi transmit (queue) color failed").
+               A ~12KB internal buffer sidesteps both. */
+            .buff_dma = true,
+            .buff_spiram = false,
 #if CONFIG_BSP_DISPLAY_LVGL_FULL_REFRESH
             .full_refresh = 1,
 #elif CONFIG_BSP_DISPLAY_LVGL_DIRECT_MODE

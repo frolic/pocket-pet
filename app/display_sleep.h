@@ -30,3 +30,6 @@ void display_sleep_wake(void);
 
 /* Sleeps immediately (power button toggle). */
 void display_sleep_sleep_now(void);
+
+/* While held, the inactivity timeout is suspended (setup portal). */
+void display_sleep_set_hold(bool hold);

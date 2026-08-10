@@ -15,24 +15,35 @@ WIDTH, HEIGHT = 410, 502
 
 
 def read_blob(port, tag):
-    data = bytearray()
+    """Offset-tagged transfer: any dropped line is detected and zero-filled,
+    and the caller learns how many bytes were lost."""
     size = None
     while True:
         line = port.readline().decode(errors="replace").strip()
         if line.startswith(f"{tag} begin"):
             size = int(line.split()[-1])
             break
+    data = bytearray(size)
+    received = 0
     while True:
         line = port.readline().decode(errors="replace").strip()
         if line == f"{tag} end":
             break
-        if not line or " " in line:
+        if not line.startswith("@") or ":" not in line:
             continue
+        offset_str, payload = line[1:].split(":", 1)
         try:
-            data.extend(base64.b64decode(line))
+            offset = int(offset_str)
+            chunk = base64.b64decode(payload)
         except Exception:
-            pass
-    return bytes(data[:size])
+            continue
+        if offset + len(chunk) <= size:
+            data[offset:offset + len(chunk)] = chunk
+            received += len(chunk)
+    lost = size - received
+    if lost:
+        print(f"{tag}: WARNING {lost} bytes lost in transfer")
+    return bytes(data)
 
 
 def snap(out_path):

@@ -11,6 +11,7 @@
 #include "lvgl.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
 #include "step_source.h"
+#include "device_debug.h"
 
 /*
  * QMI8658 hardware pedometer. Register sequences ported from lewisxhe's
@@ -378,7 +379,7 @@ uint32_t step_source_total(void)
     /* Temporary diagnostics: prove the accel is sampling and the pedometer
        engine is enabled. Remove once step counting is confirmed. */
     static uint32_t last_dump_tick;
-    if (lv_tick_elaps(last_dump_tick) > 2000) {
+    if (!device_debug_quiet() && lv_tick_elaps(last_dump_tick) > 2000) {
         last_dump_tick = lv_tick_get();
         uint8_t hw_count[3] = {0};
         read_registers(REG_STEP_CNT_LOW, hw_count, 3);

@@ -10,6 +10,7 @@ static uint32_t settle_started_tick;
 static uint32_t pet_asleep_since_tick;
 static void (*dim_cb)(uint8_t brightness_percent);
 static void (*state_cb)(bool asleep);
+static bool hold;
 
 /* Bedtime choreography: the pet visibly settles before the screen fades. */
 #define SLEEP_POSE_LINGER_MS 1200
@@ -78,7 +79,7 @@ static void go_to_sleep(void)
 static void watch_tick(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
-    if (asleep) return;
+    if (asleep || hold) return;
     bool inactive = lv_display_get_inactive_time(NULL) > sleep_timeout_ms;
     if (!settling) {
         if (inactive) {
@@ -150,6 +151,12 @@ static void wake_backlight_cb(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
     if (dim_cb != NULL) dim_cb(AWAKE_BRIGHTNESS);
+}
+
+void display_sleep_set_hold(bool new_hold)
+{
+    hold = new_hold;
+    if (!new_hold) lv_display_trigger_activity(NULL);
 }
 
 void display_sleep_wake(void)

@@ -46,9 +46,25 @@ uint32_t device_debug_flush_failure_count(void)
     return flush_failures;
 }
 
+static volatile bool quiet;
+
+void device_debug_set_quiet(bool new_quiet)
+{
+    quiet = new_quiet;
+}
+
+bool device_debug_quiet(void)
+{
+    return quiet;
+}
+
 static void heartbeat_task(void *arg)
 {
     while (true) {
+        if (quiet) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
         wifi_mode_t mode = WIFI_MODE_NULL;
         esp_wifi_get_mode(&mode);
         uint32_t failures = flush_failures;

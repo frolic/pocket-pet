@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/time.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -10,6 +12,7 @@
 #include "lvgl.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
 #include "device_debug_console.h"
+#include "device_debug.h"
 #include "display_sleep.h"
 
 /*
@@ -79,6 +82,8 @@ static void snap_cb(lv_timer_t *timer)
     xSemaphoreGive(snap_done);
 }
 
+/* Every line carries its byte offset so the host can detect and report any
+   dropped or mangled line instead of silently shearing the image. */
 static void print_base64(const char *tag, const uint8_t *data, size_t size)
 {
     printf("%s begin %u\n", tag, (unsigned)size);
@@ -89,9 +94,9 @@ static void print_base64(const char *tag, const uint8_t *data, size_t size)
         size_t written = 0;
         mbedtls_base64_encode(line, sizeof(line), &written, data + offset, chunk);
         line[written] = '\0';
-        printf("%s\n", line);
+        printf("@%u:%s\n", (unsigned)offset, line);
         offset += chunk;
-        if ((offset & 0x3FFF) == 0) vTaskDelay(1);
+        if ((offset & 0x1FFF) == 0) vTaskDelay(1);
     }
     printf("%s end\n", tag);
 }
@@ -146,13 +151,29 @@ static void console_task(void *arg)
         length = 0;
         if (line[0] == '\0') continue;
         if (strcmp(line, "snap") == 0) {
+            device_debug_set_quiet(true);
             run_snap();
+            device_debug_set_quiet(false);
         } else if (strcmp(line, "wake") == 0) {
             run_in_lvgl(wake_cb);
             printf("wake: ok\n");
         } else if (strcmp(line, "sleep") == 0) {
             run_in_lvgl(sleep_cb);
             printf("sleep: ok\n");
+        } else if (strncmp(line, "time ", 5) == 0) {
+            int year, month, day, hour, minute;
+            if (sscanf(line + 5, "%d %d %d %d %d", &year, &month, &day, &hour, &minute) == 5) {
+                struct tm local = {
+                    .tm_year = year - 1900,
+                    .tm_mon = month - 1,
+                    .tm_mday = day,
+                    .tm_hour = hour,
+                    .tm_min = minute,
+                };
+                struct timeval now = {.tv_sec = mktime(&local)};
+                settimeofday(&now, NULL);
+                printf("time: set\n");
+            }
         } else if (strncmp(line, "tap ", 4) == 0) {
             int x, y;
             if (sscanf(line + 4, "%d %d", &x, &y) == 2) {
