@@ -21,9 +21,17 @@ static void (*state_cb)(bool asleep);
 #define FADE_GRAY 0x3A3A3E
 #define AWAKE_BRIGHTNESS 80
 
+/* With a hardware dimmer (device), the fade is brightness-only: zero
+   flushes, so the SPI queue never floods (full-screen blanket animation
+   was overrunning the panel — the root of the tearing). Without one
+   (sim), the blanket cross-fades in software. */
 static void fade_exec(void *var, int32_t value)
 {
     LV_UNUSED(var);
+    if (dim_cb != NULL) {
+        dim_cb((uint8_t)(AWAKE_BRIGHTNESS * (510 - value) / 510));
+        return;
+    }
     if (value <= 255) {
         lv_obj_set_style_bg_color(blanket, lv_color_hex(FADE_GRAY), 0);
         lv_obj_set_style_bg_opa(blanket, (lv_opa_t)value, 0);
@@ -35,15 +43,15 @@ static void fade_exec(void *var, int32_t value)
             0);
         lv_obj_set_style_bg_opa(blanket, LV_OPA_COVER, 0);
     }
-    if (dim_cb != NULL) {
-        dim_cb((uint8_t)(AWAKE_BRIGHTNESS * (510 - value) / 510));
-    }
 }
 
 static void fade_done(lv_anim_t *anim)
 {
     LV_UNUSED(anim);
     pet_freeze(true);
+    /* Panel is dark (or the sim blanket landed): snap the blanket solid. */
+    lv_obj_set_style_bg_color(blanket, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(blanket, LV_OPA_COVER, 0);
     if (dim_cb != NULL) dim_cb(0);
     if (state_cb != NULL) state_cb(true);
 }

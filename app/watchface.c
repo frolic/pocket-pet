@@ -2,6 +2,7 @@
 #include <time.h>
 #include "lvgl.h"
 #include "watchface.h"
+#include "display_sleep.h"
 #include "pet.h"
 #include "game_config.h"
 #include "pixel_scale.h"
@@ -105,6 +106,8 @@ static void refresh_time(lv_timer_t *timer)
     struct tm local;
     localtime_r(&now, &local);
     char text[8];
+    /* No redraws under the blanket: invalidations while dark still flush. */
+    if (display_sleep_is_asleep()) return;
     snprintf(text, sizeof(text), "%02d:%02d", local.tm_hour, local.tm_min);
     pixel_text_set(time_shadow, text);
     lv_obj_align(time_shadow, LV_ALIGN_TOP_MID, 3, 27);

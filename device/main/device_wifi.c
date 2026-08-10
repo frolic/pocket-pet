@@ -683,10 +683,13 @@ void device_wifi_start(void)
         validating_boot = get_u8("validating") != 0;
         validating_index = validating_boot ? (int)get_u8("validating_idx") : -1;
         if (validating_index >= network_count) validating_index = network_count - 1;
-        station_start();
+        /* Freeze the scene BEFORE the radio, and give the first full paint
+           a moment to drain — the boot scan corrupts in-flight flushes. */
         device_state_boot_sync();
+        vTaskDelay(pdMS_TO_TICKS(1200));
+        station_start();
     } else {
-        portal_start();
         device_state_portal();
+        portal_start();
     }
 }
