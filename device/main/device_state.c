@@ -3,12 +3,16 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
+#include "lvgl.h"
 #include "device_state.h"
 #include "device_power.h"
 #include "device_axp2101.h"
 #include "pet.h"
 #include "watchface.h"
 #include "device_wifi.h"
+#include "device_touch_raw.h"
+#include "power_button.h"
+#include "esp_system.h"
 
 /*
  * The device mode state machine — single owner of the radio/display truce.
@@ -39,6 +43,13 @@ static const char *state_name(device_state_t state)
     return "?";
 }
 
+static void renderer_stop_cb(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    lv_refr_now(NULL);
+    lv_timer_enable(false);
+}
+
 /* Clocks: full unless dozing on battery. */
 static void apply_power(void)
 {
@@ -66,7 +77,7 @@ static void apply_ui(bool in_lvgl_context)
     case DEVICE_STATE_PORTAL:
         paused = true;
         renderer_running = false;
-        banner = "WIFI SETUP";
+        banner = NULL; /* the setup modal replaces the banner */
         break;
     case DEVICE_STATE_ACTIVE:
         paused = false;
@@ -82,11 +93,16 @@ static void apply_ui(bool in_lvgl_context)
         lv_timer_enable(true);
         pet_set_paused(paused);
         watchface_set_banner(banner);
+        watchface_show_setup_modal(false);
     } else {
         pet_set_paused(paused);
         watchface_set_banner(banner);
-        lv_refr_now(NULL); /* land the frozen frame... */
-        lv_timer_enable(false); /* ...then stop the renderer cold */
+        watchface_show_setup_modal(current == DEVICE_STATE_PORTAL);
+        /* Land the frozen frame then stop the renderer — from INSIDE the
+           LVGL task via a one-shot (a full render on this caller's small
+           stack overflows it). */
+        lv_timer_t *stop_timer = lv_timer_create(renderer_stop_cb, 60, NULL);
+        lv_timer_set_repeat_count(stop_timer, 1);
     }
     if (!in_lvgl_context) bsp_display_unlock();
 }
@@ -154,13 +170,34 @@ void device_state_boot_sync(void)
     if (changed) apply_ui(false);
 }
 
+/* With the renderer stopped, LVGL's input pipeline is dead too: watch the
+   touch controller and power button raw. Cancel (or PWR) reboots back to
+   normal operation — the portal state is terminal either way. */
+static void portal_input_task(void *arg)
+{
+    (void)arg;
+    int cancel_min_y = watchface_setup_modal_cancel_min_y();
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        int x, y;
+        if (power_button_pressed() ||
+            (device_touch_raw_get(&x, &y) && y >= cancel_min_y)) {
+            printf("device_state: setup cancelled — rebooting\n");
+            esp_restart();
+        }
+    }
+}
+
 void device_state_portal(void)
 {
     bool changed = false;
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     changed = transition(DEVICE_STATE_PORTAL);
     xSemaphoreGive(state_mutex);
-    if (changed) apply_ui(false);
+    if (changed) {
+        apply_ui(false);
+        xTaskCreate(portal_input_task, "portalin", 3072, NULL, 3, NULL);
+    }
 }
 
 /* Slow housekeeping in a plain task: LVGL and lock-waits must never run on

@@ -35,7 +35,12 @@ static lv_obj_t *record_dot;
 static lv_obj_t *battery_root;
 static lv_obj_t *battery_fill;
 static lv_obj_t *wifi_icon;
+static lv_obj_t *setup_modal;
 static void (*wifi_tap_cb)(void);
+
+#define MODAL_TOP 110
+#define MODAL_HEIGHT 300
+#define MODAL_CANCEL_TOP (MODAL_TOP + MODAL_HEIGHT - 88)
 
 static void wifi_icon_clicked(lv_event_t *event)
 {
@@ -257,6 +262,66 @@ void watchface_set_wifi_offline(bool wifi_offline)
 void watchface_set_wifi_tap_cb(void (*tap_cb)(void))
 {
     wifi_tap_cb = tap_cb;
+}
+
+/* Built lazily: setup mode is rare and the modal is static once shown. */
+static void build_setup_modal(void)
+{
+    setup_modal = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(setup_modal);
+    lv_obj_set_size(setup_modal, 340, MODAL_HEIGHT);
+    lv_obj_align(setup_modal, LV_ALIGN_TOP_MID, 0, MODAL_TOP);
+    lv_obj_set_style_bg_color(setup_modal, lv_color_hex(0xF8F8F0), 0);
+    lv_obj_set_style_bg_opa(setup_modal, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(setup_modal, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_border_width(setup_modal, 6, 0);
+
+    lv_obj_t *title = pixel_text_create(setup_modal);
+    pixel_text_set_color(title, lv_color_hex(0x202020));
+    pixel_text_set(title, "WIFI SETUP");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 28);
+
+    lv_obj_t *line1 = pixel_text_create(setup_modal);
+    pixel_text_set_color(line1, lv_color_hex(0x505050));
+    pixel_text_set(line1, "JOIN");
+    lv_obj_align(line1, LV_ALIGN_TOP_MID, 0, 84);
+
+    lv_obj_t *line2 = pixel_text_create(setup_modal);
+    pixel_text_set_color(line2, lv_color_hex(0x505050));
+    pixel_text_set(line2, "POCKET-PIKACHU");
+    lv_obj_align(line2, LV_ALIGN_TOP_MID, 0, 118);
+
+    lv_obj_t *line3 = pixel_text_create(setup_modal);
+    pixel_text_set_color(line3, lv_color_hex(0x505050));
+    pixel_text_set(line3, "ON YOUR PHONE");
+    lv_obj_align(line3, LV_ALIGN_TOP_MID, 0, 152);
+
+    lv_obj_t *cancel = lv_obj_create(setup_modal);
+    lv_obj_remove_style_all(cancel);
+    lv_obj_set_size(cancel, 260, 56);
+    lv_obj_align(cancel, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_set_style_bg_color(cancel, lv_color_hex(0x303030), 0);
+    lv_obj_set_style_bg_opa(cancel, LV_OPA_COVER, 0);
+
+    lv_obj_t *cancel_text = pixel_text_create(cancel);
+    pixel_text_set_color(cancel_text, lv_color_white());
+    pixel_text_set(cancel_text, "CANCEL");
+    lv_obj_center(cancel_text);
+}
+
+void watchface_show_setup_modal(bool show)
+{
+    if (setup_modal == NULL) {
+        if (!show) return;
+        build_setup_modal();
+    }
+    if (show) lv_obj_remove_flag(setup_modal, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(setup_modal, LV_OBJ_FLAG_HIDDEN);
+}
+
+int watchface_setup_modal_cancel_min_y(void)
+{
+    return MODAL_CANCEL_TOP;
 }
 
 void watchface_set_battery(int percent, bool charging)

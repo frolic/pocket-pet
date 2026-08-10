@@ -27,3 +27,10 @@ void watchface_set_wifi_offline(bool offline);
 
 /* Tapping the wifi-disconnected icon (device: reboot into setup). */
 void watchface_set_wifi_tap_cb(void (*tap_cb)(void));
+
+/* Full setup-mode modal ("WIFI SETUP" + cancel). The cancel hit region is
+   the modal's lower band; device code hit-tests raw touch against
+   watchface_setup_modal_cancel_min_y(). */
+void watchface_show_setup_modal(bool show);
+
+int watchface_setup_modal_cancel_min_y(void);
