@@ -43,13 +43,6 @@ static const char *state_name(device_state_t state)
     return "?";
 }
 
-static void renderer_stop_cb(lv_timer_t *timer)
-{
-    LV_UNUSED(timer);
-    lv_refr_now(NULL);
-    lv_timer_enable(false);
-}
-
 /* Clocks: full unless dozing on battery. */
 static void apply_power(void)
 {
@@ -59,29 +52,25 @@ static void apply_power(void)
 /* UI invariants for the new state. Callers in LVGL context (the display
    sleep callback) must pass in_lvgl_context=true to skip the display lock.
 
-   Radio-visible states render ZERO pixels: draw the final banner frame,
-   flush it, then stop LVGL's timer engine until the radio is gone. "Mostly
-   static" still flushes occasionally, and any flush during radio can
-   corrupt on this board — the invariant must hold by construction. */
+   The zero-render invariant is enforced mechanically by the flush gate
+   (device_flush_gate.c), fused to esp_wifi_start/stop — this function only
+   applies the visible UI (banner/modal/pause); timers and input keep
+   running while gated. */
 static void apply_ui(bool in_lvgl_context)
 {
     bool paused;
-    bool renderer_running;
     const char *banner;
     switch (current) {
     case DEVICE_STATE_SYNC_VISIBLE:
         paused = true;
-        renderer_running = false;
         banner = "SYNCING";
         break;
     case DEVICE_STATE_PORTAL:
         paused = true;
-        renderer_running = false;
         banner = NULL; /* the setup modal replaces the banner */
         break;
     case DEVICE_STATE_ACTIVE:
         paused = false;
-        renderer_running = true;
         banner = NULL;
         break;
     default:
@@ -89,21 +78,9 @@ static void apply_ui(bool in_lvgl_context)
         return;
     }
     if (!in_lvgl_context) bsp_display_lock(0);
-    if (renderer_running) {
-        lv_timer_enable(true);
-        pet_set_paused(paused);
-        watchface_set_banner(banner);
-        watchface_show_setup_modal(false);
-    } else {
-        pet_set_paused(paused);
-        watchface_set_banner(banner);
-        watchface_show_setup_modal(current == DEVICE_STATE_PORTAL);
-        /* Land the frozen frame then stop the renderer — from INSIDE the
-           LVGL task via a one-shot (a full render on this caller's small
-           stack overflows it). */
-        lv_timer_t *stop_timer = lv_timer_create(renderer_stop_cb, 60, NULL);
-        lv_timer_set_repeat_count(stop_timer, 1);
-    }
+    pet_set_paused(paused);
+    watchface_set_banner(banner);
+    watchface_show_setup_modal(current == DEVICE_STATE_PORTAL);
     if (!in_lvgl_context) bsp_display_unlock();
 }
 

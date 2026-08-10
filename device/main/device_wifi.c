@@ -20,6 +20,7 @@
 #include "dhcpserver/dhcpserver_options.h"
 #include "device_wifi.h"
 #include "device_state.h"
+#include "device_flush_gate.h"
 
 #ifdef FROLIC_DEBUG
 #define WIFI_TRACE(...) printf("WIFI-TRACE: " __VA_ARGS__)
@@ -214,6 +215,7 @@ static void radio_off_timer_cb(void *arg)
     printf("device_wifi: clock synced — radio off until next sync window\n");
     esp_sntp_stop();
     esp_wifi_stop();
+    device_flush_gate_open();
     radio_active = false;
     device_state_release_radio();
 }
@@ -347,6 +349,7 @@ static void give_up_offline(void)
     printf("device_wifi: no known network reachable — continuing offline\n");
     offline = true;
     esp_wifi_stop();
+    device_flush_gate_open();
     radio_active = false;
     device_state_release_radio();
 }
@@ -359,6 +362,7 @@ static void station_start(void)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, station_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, station_event, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    device_flush_gate_close();
     ESP_ERROR_CHECK(esp_wifi_start());
     radio_active = true;
     /* Modem power-save transitions can glitch the QSPI display pipeline. */
@@ -558,6 +562,7 @@ static void portal_start(void)
     /* APSTA only so the scan works — the STA interface never connects here. */
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &config));
+    device_flush_gate_close();
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_ps(WIFI_PS_NONE);
 
@@ -603,7 +608,9 @@ bool device_wifi_window_begin(uint32_t timeout_ms)
     /* The device state machine only grants windows from DOZING, so the
        screen is already dark and static here. */
     radio_active = true;
+    device_flush_gate_close();
     if (esp_wifi_start() != ESP_OK) {
+        device_flush_gate_open();
         radio_active = false;
         window_mode = false;
         return false;
@@ -611,6 +618,7 @@ bool device_wifi_window_begin(uint32_t timeout_ms)
     if (!connect_best()) {
         /* No known network in range: a ~2s scan, not a 12s timeout. */
         esp_wifi_stop();
+        device_flush_gate_open();
         radio_active = false;
         window_mode = false;
         return false;
@@ -629,6 +637,7 @@ bool device_wifi_window_begin(uint32_t timeout_ms)
 void device_wifi_window_end(void)
 {
     esp_wifi_stop();
+    device_flush_gate_open();
     window_mode = false;
     radio_active = false;
 }

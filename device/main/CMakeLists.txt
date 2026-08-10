@@ -6,6 +6,7 @@ idf_component_register(
         "device_power.c"
         "device_state.c"
         "device_touch_raw.c"
+        "device_flush_gate.c"
         "device_debug.c"
         "device_button_source.c"
         "device_axp2101.c"
