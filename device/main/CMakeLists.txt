@@ -7,6 +7,7 @@ idf_component_register(
         "device_state.c"
         "device_touch_raw.c"
         "device_flush_gate.c"
+        "device_debug_console.c"
         "device_debug.c"
         "device_button_source.c"
         "device_axp2101.c"
@@ -22,7 +23,7 @@ idf_component_register(
         "../../app/sprites/hud_box.c"
         "../../app/sprites/pixel_font.c"
     INCLUDE_DIRS "." "../../app"
-    REQUIRES esp32_s3_touch_amoled_2_06 driver esp_timer esp_wifi esp_netif esp_event esp_http_server esp_http_client esp_https_ota app_update nvs_flash lwip
+    REQUIRES esp32_s3_touch_amoled_2_06 driver esp_timer mbedtls esp_wifi esp_netif esp_event esp_http_server esp_http_client esp_https_ota app_update nvs_flash lwip
 )
 
 if(DEFINED ENV{FROLIC_DISABLE_WIFI})

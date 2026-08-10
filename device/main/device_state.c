@@ -153,8 +153,15 @@ static void portal_input_task(void *arg)
 {
     (void)arg;
     int cancel_min_y = watchface_setup_modal_cancel_min_y();
-    /* Debounce the entry tap so it doesn't immediately cancel. */
-    vTaskDelay(pdMS_TO_TICKS(600));
+    /* Arm only after the entry touch has fully lifted plus a beat —
+       rapid taps were cancelling the portal instantly. */
+    int idle_polls = 0;
+    while (current == DEVICE_STATE_PORTAL && idle_polls < 15) {
+        int x, y;
+        vTaskDelay(pdMS_TO_TICKS(100));
+        if (device_touch_raw_get(&x, &y)) idle_polls = 0;
+        else idle_polls++;
+    }
     while (current == DEVICE_STATE_PORTAL) {
         vTaskDelay(pdMS_TO_TICKS(100));
         int x, y;
