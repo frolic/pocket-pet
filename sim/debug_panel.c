@@ -5,6 +5,7 @@
 #include "../app/button_source.h"
 #include "../app/power_button.h"
 #include "../app/pet.h"
+#include "../app/watchface.h"
 
 static bool record_held;
 
@@ -34,6 +35,15 @@ bool power_button_pressed(void)
     bool pressed = power_pressed;
     power_pressed = false;
     return pressed;
+}
+
+static bool wifi_offline_sim;
+
+static void wifi_clicked(lv_event_t *event)
+{
+    LV_UNUSED(event);
+    wifi_offline_sim = !wifi_offline_sim;
+    watchface_set_wifi_offline(wifi_offline_sim);
 }
 
 static void battery_clicked(lv_event_t *event)
@@ -90,6 +100,9 @@ void debug_panel_create(lv_obj_t *parent)
 
     lv_obj_t *battery_button = make_button(rail, "Battery");
     lv_obj_add_event_cb(battery_button, battery_clicked, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *wifi_button = make_button(rail, "WiFi");
+    lv_obj_add_event_cb(wifi_button, wifi_clicked, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *shock_button = make_button(rail, "Shock");
     lv_obj_add_event_cb(shock_button, celebrate_clicked, LV_EVENT_CLICKED,

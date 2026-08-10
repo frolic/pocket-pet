@@ -20,3 +20,9 @@ bool device_wifi_radio_active(void);
 bool device_wifi_window_begin(uint32_t timeout_ms);
 
 void device_wifi_window_end(void);
+
+/* No known network was reachable at the last attempt. */
+bool device_wifi_is_offline(void);
+
+/* Reboots into the captive setup portal (wifi icon tap). */
+void device_wifi_setup_reboot(void);

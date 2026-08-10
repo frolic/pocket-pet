@@ -52,6 +52,9 @@ void app_main(void)
     frolic_app_init(lv_screen_active());
     display_sleep_set_dim_cb(display_dim);
     display_sleep_set_state_cb(device_state_report_display);
+#ifndef FROLIC_DISABLE_WIFI
+    watchface_set_wifi_tap_cb(device_wifi_setup_reboot);
+#endif
     bsp_display_unlock();
 
 #ifndef FROLIC_DISABLE_WIFI

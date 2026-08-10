@@ -39,33 +39,100 @@
  * A failed attempt records an error and reboots back into the portal.
  */
 
-static char stored_ssid[33];
-static char stored_password[65];
+#define MAX_NETWORKS 5
+
+typedef struct {
+    char ssid[33];
+    char password[65];
+} known_network_t;
+
+static known_network_t networks[MAX_NETWORKS];
+static int network_count;
+static int active_index = -1;     /* the network we're connecting/connected to */
+static int validating_index = -1; /* freshly-entered creds awaiting proof */
 static char last_error[96];
 static bool in_portal;
 static bool radio_active;
+static bool offline; /* no known network reachable at the last attempt */
 
 /* ---------- NVS ---------- */
+
+static void slot_key(char *out, const char *prefix, int index)
+{
+    sprintf(out, "%s%d", prefix, index);
+}
 
 static bool load_credentials(void)
 {
     nvs_handle_t handle;
-    if (nvs_open("wifi", NVS_READONLY, &handle) != ESP_OK) return false;
-    size_t ssid_size = sizeof(stored_ssid);
-    size_t password_size = sizeof(stored_password);
-    bool ok = nvs_get_str(handle, "ssid", stored_ssid, &ssid_size) == ESP_OK &&
-              nvs_get_str(handle, "password", stored_password, &password_size) == ESP_OK;
+    if (nvs_open("wifi", NVS_READWRITE, &handle) != ESP_OK) return false;
+
+    /* Migrate the original single-slot keys into slot 0. */
+    size_t size = sizeof(networks[0].ssid);
+    if (nvs_get_str(handle, "ssid", networks[0].ssid, &size) == ESP_OK) {
+        size = sizeof(networks[0].password);
+        if (nvs_get_str(handle, "password", networks[0].password, &size) == ESP_OK) {
+            nvs_set_str(handle, "ssid0", networks[0].ssid);
+            nvs_set_str(handle, "pass0", networks[0].password);
+        }
+        nvs_erase_key(handle, "ssid");
+        nvs_erase_key(handle, "password");
+        nvs_commit(handle);
+    }
+
+    network_count = 0;
+    for (int i = 0; i < MAX_NETWORKS; i++) {
+        char key[8];
+        slot_key(key, "ssid", i);
+        size = sizeof(networks[network_count].ssid);
+        if (nvs_get_str(handle, key, networks[network_count].ssid, &size) != ESP_OK) continue;
+        slot_key(key, "pass", i);
+        size = sizeof(networks[network_count].password);
+        if (nvs_get_str(handle, key, networks[network_count].password, &size) != ESP_OK) continue;
+        if (networks[network_count].ssid[0] != '\0') network_count++;
+    }
     nvs_close(handle);
-    return ok && stored_ssid[0] != '\0';
+    return network_count > 0;
 }
 
+static void store_all(nvs_handle_t handle)
+{
+    for (int i = 0; i < MAX_NETWORKS; i++) {
+        char key[8];
+        slot_key(key, "ssid", i);
+        if (i < network_count) nvs_set_str(handle, key, networks[i].ssid);
+        else nvs_erase_key(handle, key);
+        slot_key(key, "pass", i);
+        if (i < network_count) nvs_set_str(handle, key, networks[i].password);
+        else nvs_erase_key(handle, key);
+    }
+}
+
+/* Appends (or updates a same-SSID entry); evicts the oldest when full. The
+   new entry is marked validating so a bad password still round-trips to the
+   portal instead of silently polluting the list. */
 static void save_credentials(const char *ssid, const char *password)
 {
+    load_credentials();
+    int index = -1;
+    for (int i = 0; i < network_count; i++) {
+        if (strcmp(networks[i].ssid, ssid) == 0) index = i;
+    }
+    if (index < 0) {
+        if (network_count == MAX_NETWORKS) {
+            memmove(&networks[0], &networks[1], sizeof(networks[0]) * (MAX_NETWORKS - 1));
+            network_count--;
+        }
+        index = network_count++;
+    }
+    strlcpy(networks[index].ssid, ssid, sizeof(networks[index].ssid));
+    strlcpy(networks[index].password, password, sizeof(networks[index].password));
+
     nvs_handle_t handle;
     ESP_ERROR_CHECK(nvs_open("wifi", NVS_READWRITE, &handle));
-    ESP_ERROR_CHECK(nvs_set_str(handle, "ssid", ssid));
-    ESP_ERROR_CHECK(nvs_set_str(handle, "password", password));
+    store_all(handle);
     ESP_ERROR_CHECK(nvs_set_u8(handle, "validating", 1));
+    ESP_ERROR_CHECK(nvs_set_u8(handle, "validating_idx", (uint8_t)index));
     ESP_ERROR_CHECK(nvs_commit(handle));
     nvs_close(handle);
 }
@@ -166,60 +233,122 @@ static void on_time_synced(struct timeval *tv)
     }
 }
 
+static void give_up_offline(void);
+
 static void station_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     WIFI_TRACE("station_event base=%s id=%d\n", base == WIFI_EVENT ? "WIFI" : "IP", (int)id);
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_STOP) return;
-    if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_START || id == WIFI_EVENT_STA_DISCONNECTED)) {
-        if (id == WIFI_EVENT_STA_DISCONNECTED && station_ever_connected) {
+    /* Connecting is procedural (scan + pick, then connect) — STA_START is
+       not a trigger here. */
+    if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_STOP || id == WIFI_EVENT_STA_START)) return;
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        if (station_ever_connected) {
             /* Mid-window drops retry; outside a window stay quiet. */
             if (window_mode) esp_wifi_connect();
             return;
         }
-        if (id == WIFI_EVENT_STA_DISCONNECTED) {
-            wifi_event_sta_disconnected_t *event = data;
-            printf("device_wifi: disconnected from '%.32s' reason=%d rssi=%d\n",
-                   (const char *)event->ssid, (int)event->reason, (int)event->rssi);
-        }
-        if (id == WIFI_EVENT_STA_DISCONNECTED && !station_ever_connected) {
-            int limit = 15;
-            if (++station_failures >= limit) {
-                if (validating_boot) {
-                    /* Unproven portal creds: assume a bad password. */
-                    printf("device_wifi: cannot join '%s' — rebooting into setup portal\n", stored_ssid);
-                    char message[96];
-                    snprintf(message, sizeof(message),
-                             "Couldn't join '%.32s' — check the password.", stored_ssid);
-                    set_last_error(message);
-                    set_u8("validating", 0);
-                    set_u8("force_portal", 1);
-                    esp_restart();
-                }
-                /* Proven creds, network just not here (rebooted away from
-                   home): continue offline rather than trapping in setup. */
-                printf("device_wifi: '%s' not reachable — continuing offline\n", stored_ssid);
-                esp_wifi_stop();
-                radio_active = false;
-                device_state_release_radio();
-                return;
+        wifi_event_sta_disconnected_t *event = data;
+        printf("device_wifi: disconnected from '%.32s' reason=%d rssi=%d\n",
+               (const char *)event->ssid, (int)event->reason, (int)event->rssi);
+        int limit = 15;
+        if (++station_failures >= limit) {
+            const char *ssid = active_index >= 0 ? networks[active_index].ssid : "?";
+            if (validating_boot) {
+                /* Unproven portal creds: assume a bad password. */
+                printf("device_wifi: cannot join '%s' — rebooting into setup portal\n", ssid);
+                char message[96];
+                snprintf(message, sizeof(message),
+                         "Couldn't join '%.32s' — check the password.", ssid);
+                set_last_error(message);
+                set_u8("validating", 0);
+                set_u8("force_portal", 1);
+                esp_restart();
             }
+            /* Proven creds, network unreachable (rebooted away from home):
+               continue offline rather than trapping in setup. */
+            give_up_offline();
+            return;
         }
         esp_wifi_connect();
     }
     if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         station_ever_connected = true;
-        set_u8("validating", 0);
+        offline = false;
+        if (validating_index >= 0) {
+            set_u8("validating", 0);
+            validating_index = -1;
+        }
         if (!esp_sntp_enabled()) {
             esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
             esp_sntp_setservername(0, "pool.ntp.org");
             sntp_set_time_sync_notification_cb(on_time_synced);
             esp_sntp_init();
         }
-        printf("device_wifi: connected to '%s'\n", stored_ssid);
+        printf("device_wifi: connected to '%s'\n",
+               active_index >= 0 ? networks[active_index].ssid : "?");
         if (window_events != NULL) {
             xEventGroupSetBits(window_events, WINDOW_GOT_IP_BIT);
         }
     }
+}
+
+/* Blocking all-channel scan; returns the index of the best known network
+   (a validating entry wins outright so fresh creds get proven). */
+static int pick_network(void)
+{
+    wifi_scan_config_t scan_config = {0};
+    if (esp_wifi_scan_start(&scan_config, true) != ESP_OK) return -1;
+    uint16_t record_count = 20;
+    static wifi_ap_record_t records[20];
+    if (esp_wifi_scan_get_ap_records(&record_count, records) != ESP_OK) return -1;
+    int best = -1;
+    int best_rssi = -128;
+    for (int r = 0; r < record_count; r++) {
+        for (int n = 0; n < network_count; n++) {
+            if (strcmp((const char *)records[r].ssid, networks[n].ssid) != 0) continue;
+            if (n == validating_index) return n;
+            if (records[r].rssi > best_rssi) {
+                best_rssi = records[r].rssi;
+                best = n;
+            }
+        }
+    }
+    return best;
+}
+
+/* Scans and connects to the best visible known network. False if none. */
+static bool connect_best(void)
+{
+    int index = pick_network();
+    if (index < 0) {
+        offline = true;
+        return false;
+    }
+    active_index = index;
+    printf("device_wifi: joining '%s'\n", networks[index].ssid);
+    wifi_config_t config = {0};
+    strlcpy((char *)config.sta.ssid, networks[index].ssid, sizeof(config.sta.ssid));
+    strlcpy((char *)config.sta.password, networks[index].password, sizeof(config.sta.password));
+    /* WPA2/WPA3-transition routers reject non-PMF clients with AUTH_FAIL
+       (reason 202) — a zeroed config disables PMF capability. */
+    config.sta.pmf_cfg.capable = true;
+    config.sta.pmf_cfg.required = false;
+    /* Mesh networks broadcast several BSSIDs; scan all channels and take
+       the strongest 2.4GHz one. */
+    config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+    esp_wifi_set_config(WIFI_IF_STA, &config);
+    esp_wifi_connect();
+    return true;
+}
+
+static void give_up_offline(void)
+{
+    printf("device_wifi: no known network reachable — continuing offline\n");
+    offline = true;
+    esp_wifi_stop();
+    radio_active = false;
+    device_state_release_radio();
 }
 
 static void station_start(void)
@@ -229,29 +358,27 @@ static void station_start(void)
     ESP_ERROR_CHECK(esp_wifi_init(&init_config));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, station_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, station_event, NULL));
-
-    wifi_config_t config = {0};
-    strlcpy((char *)config.sta.ssid, stored_ssid, sizeof(config.sta.ssid));
-    strlcpy((char *)config.sta.password, stored_password, sizeof(config.sta.password));
-    /* WPA2/WPA3-transition routers reject non-PMF clients with AUTH_FAIL
-       (reason 202) — a zeroed config disables PMF capability. */
-    config.sta.pmf_cfg.capable = true;
-    config.sta.pmf_cfg.required = false;
-    /* Mesh networks broadcast several BSSIDs; scan all channels and take
-       the strongest 2.4GHz one. */
-    config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
-    config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config));
     ESP_ERROR_CHECK(esp_wifi_start());
     radio_active = true;
     /* Modem power-save transitions can glitch the QSPI display pipeline. */
     esp_wifi_set_ps(WIFI_PS_NONE);
-    WIFI_TRACE("station_start done ssid='%s' password_length=%d pmf_capable=1\n",
-               stored_ssid, (int)strlen(stored_password));
 #ifdef FROLIC_DEBUG
     esp_log_level_set("wifi", ESP_LOG_DEBUG);
 #endif
+    if (!connect_best()) {
+        if (validating_index >= 0) {
+            char message[96];
+            snprintf(message, sizeof(message),
+                     "Couldn't find '%.32s' — is it in range?",
+                     networks[validating_index].ssid);
+            set_last_error(message);
+            set_u8("validating", 0);
+            set_u8("force_portal", 1);
+            esp_restart();
+        }
+        give_up_offline();
+    }
 }
 
 /* ---------- captive portal (setup mode) ---------- */
@@ -469,7 +596,7 @@ static void portal_start(void)
    (pet paused, banner) covers the visuals. */
 bool device_wifi_window_begin(uint32_t timeout_ms)
 {
-    if (in_portal || radio_active || stored_ssid[0] == '\0') return false;
+    if (in_portal || radio_active || network_count == 0) return false;
     if (window_events == NULL) window_events = xEventGroupCreate();
     xEventGroupClearBits(window_events, WINDOW_GOT_IP_BIT);
     window_mode = true;
@@ -477,6 +604,13 @@ bool device_wifi_window_begin(uint32_t timeout_ms)
        screen is already dark and static here. */
     radio_active = true;
     if (esp_wifi_start() != ESP_OK) {
+        radio_active = false;
+        window_mode = false;
+        return false;
+    }
+    if (!connect_best()) {
+        /* No known network in range: a ~2s scan, not a 12s timeout. */
+        esp_wifi_stop();
         radio_active = false;
         window_mode = false;
         return false;
@@ -497,6 +631,18 @@ void device_wifi_window_end(void)
     esp_wifi_stop();
     window_mode = false;
     radio_active = false;
+}
+
+bool device_wifi_is_offline(void)
+{
+    return offline;
+}
+
+void device_wifi_setup_reboot(void)
+{
+    printf("device_wifi: user requested setup portal — rebooting\n");
+    set_u8("force_portal", 1);
+    esp_restart();
 }
 
 bool device_wifi_in_portal(void)
@@ -535,6 +681,8 @@ void device_wifi_start(void)
 
     if (!force_portal && load_credentials()) {
         validating_boot = get_u8("validating") != 0;
+        validating_index = validating_boot ? (int)get_u8("validating_idx") : -1;
+        if (validating_index >= network_count) validating_index = network_count - 1;
         station_start();
         device_state_boot_sync();
     } else {

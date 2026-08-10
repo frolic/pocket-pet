@@ -21,3 +21,9 @@ void watchface_set_banner(const char *text);
 
 /* Battery indicator (top right). percent < 0 hides it. */
 void watchface_set_battery(int percent, bool charging);
+
+/* Wifi-disconnected icon beside the battery (hidden when online). */
+void watchface_set_wifi_offline(bool offline);
+
+/* Tapping the wifi-disconnected icon (device: reboot into setup). */
+void watchface_set_wifi_tap_cb(void (*tap_cb)(void));

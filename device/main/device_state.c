@@ -8,6 +8,7 @@
 #include "device_axp2101.h"
 #include "pet.h"
 #include "watchface.h"
+#include "device_wifi.h"
 
 /*
  * The device mode state machine — single owner of the radio/display truce.
@@ -142,6 +143,12 @@ static void pm_timer_cb(void *arg)
     (void)arg;
     /* Re-evaluate clocks while dozing: USB plug/unplug changes the answer. */
     if (current == DEVICE_STATE_DOZING) apply_power();
+    /* Keep the offline icon honest while the screen is up. */
+    if (current == DEVICE_STATE_ACTIVE) {
+        bsp_display_lock(0);
+        watchface_set_wifi_offline(device_wifi_is_offline());
+        bsp_display_unlock();
+    }
 }
 
 void device_state_init(void)

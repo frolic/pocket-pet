@@ -33,6 +33,16 @@ static lv_obj_t *exp_fill;
 static lv_obj_t *record_dot;
 static lv_obj_t *battery_root;
 static lv_obj_t *battery_fill;
+static lv_obj_t *wifi_icon;
+static void (*wifi_tap_cb)(void);
+
+static void wifi_icon_clicked(lv_event_t *event)
+{
+    LV_UNUSED(event);
+    if (wifi_tap_cb != NULL) wifi_tap_cb();
+}
+
+#define WIFI_SLASH_COLOR lv_color_hex(0xD84030)
 
 /* Battery icon in HUD art-pixels (PX=4 screen px each): 9x5 body + 1x3 nub. */
 #define BATTERY_PX 4
@@ -179,7 +189,7 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_set_size(record_dot, 18, 18);
     lv_obj_set_style_bg_color(record_dot, RECORD_COLOR, 0);
     lv_obj_set_style_bg_opa(record_dot, LV_OPA_COVER, 0);
-    lv_obj_align(record_dot, LV_ALIGN_TOP_RIGHT, -92, 27);
+    lv_obj_align(record_dot, LV_ALIGN_TOP_RIGHT, -128, 27);
     lv_obj_add_flag(record_dot, LV_OBJ_FLAG_HIDDEN);
 
     /* Battery: outlined body with a nub, level bar inside. Flat siblings in
@@ -211,6 +221,39 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_set_style_bg_color(battery_fill, BATTERY_OK_COLOR, 0);
     lv_obj_set_style_bg_opa(battery_fill, LV_OPA_COVER, 0);
     lv_obj_set_pos(battery_fill, BATTERY_PX, BATTERY_PX);
+
+    /* Offline marker: pixel wifi fan with a red slash. Tap = fix it. */
+    wifi_icon = lv_obj_create(screen);
+    lv_obj_remove_style_all(wifi_icon);
+    lv_obj_set_size(wifi_icon, 8 * BATTERY_PX, 6 * BATTERY_PX);
+    lv_obj_align(wifi_icon, LV_ALIGN_TOP_RIGHT, -84, 24);
+    lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_ext_click_area(wifi_icon, 12);
+    lv_obj_add_event_cb(wifi_icon, wifi_icon_clicked, LV_EVENT_CLICKED, NULL);
+    /* A red signal fan: dot at the bottom, arcs widening upward. */
+    static const struct { int8_t x, y, w; } wifi_pixels[] = {
+        {1, 0, 6}, {2, 2, 4}, {3, 4, 2},
+    };
+    for (size_t i = 0; i < sizeof(wifi_pixels) / sizeof(wifi_pixels[0]); i++) {
+        lv_obj_t *px = lv_obj_create(wifi_icon);
+        lv_obj_remove_style_all(px);
+        lv_obj_set_size(px, wifi_pixels[i].w * BATTERY_PX, BATTERY_PX);
+        lv_obj_set_pos(px, wifi_pixels[i].x * BATTERY_PX, wifi_pixels[i].y * BATTERY_PX);
+        lv_obj_set_style_bg_color(px, WIFI_SLASH_COLOR, 0);
+        lv_obj_set_style_bg_opa(px, LV_OPA_COVER, 0);
+    }
+}
+
+void watchface_set_wifi_offline(bool wifi_offline)
+{
+    if (wifi_offline) lv_obj_remove_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
+}
+
+void watchface_set_wifi_tap_cb(void (*tap_cb)(void))
+{
+    wifi_tap_cb = tap_cb;
 }
 
 void watchface_set_battery(int percent, bool charging)
