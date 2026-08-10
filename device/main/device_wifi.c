@@ -134,6 +134,7 @@ static void restart_task(void *arg)
 
 static int station_failures;
 static bool station_ever_connected;
+static bool validating_boot; /* creds fresh from the portal: unproven */
 static EventGroupHandle_t window_events;
 static volatile bool window_mode;
 #define WINDOW_GOT_IP_BIT BIT0
@@ -183,14 +184,24 @@ static void station_event(void *arg, esp_event_base_t base, int32_t id, void *da
         if (id == WIFI_EVENT_STA_DISCONNECTED && !station_ever_connected) {
             int limit = 15;
             if (++station_failures >= limit) {
-                printf("device_wifi: cannot join '%s' — rebooting into setup portal\n", stored_ssid);
-                char message[96];
-                snprintf(message, sizeof(message),
-                         "Couldn't join '%.32s' — check the password.", stored_ssid);
-                set_last_error(message);
-                set_u8("validating", 0);
-                set_u8("force_portal", 1);
-                esp_restart();
+                if (validating_boot) {
+                    /* Unproven portal creds: assume a bad password. */
+                    printf("device_wifi: cannot join '%s' — rebooting into setup portal\n", stored_ssid);
+                    char message[96];
+                    snprintf(message, sizeof(message),
+                             "Couldn't join '%.32s' — check the password.", stored_ssid);
+                    set_last_error(message);
+                    set_u8("validating", 0);
+                    set_u8("force_portal", 1);
+                    esp_restart();
+                }
+                /* Proven creds, network just not here (rebooted away from
+                   home): continue offline rather than trapping in setup. */
+                printf("device_wifi: '%s' not reachable — continuing offline\n", stored_ssid);
+                esp_wifi_stop();
+                radio_active = false;
+                device_state_release_radio();
+                return;
             }
         }
         esp_wifi_connect();
@@ -523,6 +534,7 @@ void device_wifi_start(void)
     if (force_portal) set_u8("force_portal", 0);
 
     if (!force_portal && load_credentials()) {
+        validating_boot = get_u8("validating") != 0;
         station_start();
         device_state_boot_sync();
     } else {
