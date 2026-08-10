@@ -90,9 +90,12 @@ static void run_update(void)
     printf("device_ota: update failed (%s)\n", esp_err_to_name(result));
 }
 
+#define OTA_BACKOFF_MAX_MS 1800000
+
 static void ota_task(void *arg)
 {
     (void)arg;
+    uint32_t interval_ms = OTA_INTERVAL_MS;
     vTaskDelay(pdMS_TO_TICKS(OTA_FIRST_CHECK_MS));
     while (true) {
         /* Windows are granted only from DOZING (screen dark and static). */
@@ -100,7 +103,8 @@ static void ota_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(OTA_AWAKE_RETRY_MS));
             continue;
         }
-        if (device_wifi_window_begin(12000)) {
+        bool connected = device_wifi_window_begin(12000);
+        if (connected) {
             char version[64];
             if (fetch_version(version, sizeof(version))) {
                 const char *running = esp_app_get_description()->version;
@@ -113,7 +117,17 @@ static void ota_task(void *arg)
             device_wifi_window_end();
         }
         device_state_release_radio();
-        vTaskDelay(pdMS_TO_TICKS(OTA_INTERVAL_MS));
+        /* Away from home wifi, every attempt is a ~12s radio scan — back
+           off so an office day doesn't burn the battery on futile tries. */
+        if (connected) {
+            interval_ms = OTA_INTERVAL_MS;
+        } else {
+            interval_ms *= 2;
+            if (interval_ms > OTA_BACKOFF_MAX_MS) interval_ms = OTA_BACKOFF_MAX_MS;
+            printf("device_ota: no wifi — next try in %lus\n",
+                   (unsigned long)(interval_ms / 1000));
+        }
+        vTaskDelay(pdMS_TO_TICKS(interval_ms));
     }
 }
 
