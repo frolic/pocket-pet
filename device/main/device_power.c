@@ -8,6 +8,7 @@
  * light sleep only when the state machine says the watch is dark on battery.
  */
 
+static esp_pm_lock_handle_t cpu_lock;
 static esp_pm_lock_handle_t freq_lock;
 static esp_pm_lock_handle_t sleep_lock;
 static bool locks_held;
@@ -17,9 +18,11 @@ void device_power_set_full(bool full)
 {
     if (!ready || full == locks_held) return;
     if (full) {
+        esp_pm_lock_acquire(cpu_lock);
         esp_pm_lock_acquire(freq_lock);
         esp_pm_lock_acquire(sleep_lock);
     } else {
+        esp_pm_lock_release(cpu_lock);
         esp_pm_lock_release(freq_lock);
         esp_pm_lock_release(sleep_lock);
     }
@@ -38,9 +41,13 @@ void device_power_init(void)
         printf("device_power: pm configure failed (%s)\n", esp_err_to_name(result));
         return;
     }
+    /* All three: CPU pinned (LVGL renders miss flush deadlines at 80MHz),
+       APB pinned (QSPI/I2C peripheral clocks), no light sleep. */
+    esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "cpu", &cpu_lock);
     esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "screen", &freq_lock);
     esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "awake", &sleep_lock);
     /* Boot is interactive: start at full speed. */
+    esp_pm_lock_acquire(cpu_lock);
     esp_pm_lock_acquire(freq_lock);
     esp_pm_lock_acquire(sleep_lock);
     locks_held = true;

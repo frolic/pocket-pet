@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "esp_timer.h"
+#include "freertos/task.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
 #include "device_state.h"
 #include "device_power.h"
@@ -26,7 +26,6 @@
 
 static device_state_t current = DEVICE_STATE_ACTIVE;
 static SemaphoreHandle_t state_mutex;
-static esp_timer_handle_t pm_timer;
 
 static const char *state_name(device_state_t state)
 {
@@ -75,13 +74,16 @@ static void apply_ui(bool in_lvgl_context)
     if (!in_lvgl_context) bsp_display_unlock();
 }
 
-static void transition(device_state_t next, bool in_lvgl_context)
+/* Transition under the mutex; UI application is deferred to the caller
+   (never take the display lock while holding state_mutex — the display
+   callback arrives on the LVGL task in the opposite lock order). */
+static bool transition(device_state_t next)
 {
-    if (next == current) return;
+    if (next == current) return false;
     printf("device_state: %s -> %s\n", state_name(current), state_name(next));
     current = next;
     apply_power();
-    apply_ui(in_lvgl_context);
+    return true;
 }
 
 device_state_t device_state_get(void)
@@ -92,72 +94,76 @@ device_state_t device_state_get(void)
 void device_state_report_display(bool asleep)
 {
     /* Called from LVGL context (display-sleep fade completion / wake). */
+    bool changed = false;
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     if (asleep) {
-        if (current == DEVICE_STATE_ACTIVE) transition(DEVICE_STATE_DOZING, true);
-        else if (current == DEVICE_STATE_SYNC_VISIBLE) transition(DEVICE_STATE_SYNCING, true);
+        if (current == DEVICE_STATE_ACTIVE) changed = transition(DEVICE_STATE_DOZING);
+        else if (current == DEVICE_STATE_SYNC_VISIBLE) changed = transition(DEVICE_STATE_SYNCING);
     } else {
-        if (current == DEVICE_STATE_DOZING) transition(DEVICE_STATE_ACTIVE, true);
-        else if (current == DEVICE_STATE_SYNCING) transition(DEVICE_STATE_SYNC_VISIBLE, true);
+        if (current == DEVICE_STATE_DOZING) changed = transition(DEVICE_STATE_ACTIVE);
+        else if (current == DEVICE_STATE_SYNCING) changed = transition(DEVICE_STATE_SYNC_VISIBLE);
     }
     xSemaphoreGive(state_mutex);
+    if (changed) apply_ui(true);
 }
 
 bool device_state_request_radio(void)
 {
     bool granted = false;
     xSemaphoreTake(state_mutex, portMAX_DELAY);
-    if (current == DEVICE_STATE_DOZING) {
-        transition(DEVICE_STATE_SYNCING, false);
-        granted = true;
-    }
+    if (current == DEVICE_STATE_DOZING) granted = transition(DEVICE_STATE_SYNCING);
     xSemaphoreGive(state_mutex);
+    if (granted) apply_ui(false);
     return granted;
 }
 
 void device_state_release_radio(void)
 {
+    bool changed = false;
     xSemaphoreTake(state_mutex, portMAX_DELAY);
-    if (current == DEVICE_STATE_SYNCING) transition(DEVICE_STATE_DOZING, false);
-    else if (current == DEVICE_STATE_SYNC_VISIBLE) transition(DEVICE_STATE_ACTIVE, false);
+    if (current == DEVICE_STATE_SYNCING) changed = transition(DEVICE_STATE_DOZING);
+    else if (current == DEVICE_STATE_SYNC_VISIBLE) changed = transition(DEVICE_STATE_ACTIVE);
     xSemaphoreGive(state_mutex);
+    if (changed) apply_ui(false);
 }
 
 void device_state_boot_sync(void)
 {
     /* Boot-time clock sync: screen is up, so show the truce explicitly. */
+    bool changed = false;
     xSemaphoreTake(state_mutex, portMAX_DELAY);
-    transition(DEVICE_STATE_SYNC_VISIBLE, false);
+    changed = transition(DEVICE_STATE_SYNC_VISIBLE);
     xSemaphoreGive(state_mutex);
+    if (changed) apply_ui(false);
 }
 
 void device_state_portal(void)
 {
+    bool changed = false;
     xSemaphoreTake(state_mutex, portMAX_DELAY);
-    transition(DEVICE_STATE_PORTAL, false);
+    changed = transition(DEVICE_STATE_PORTAL);
     xSemaphoreGive(state_mutex);
+    if (changed) apply_ui(false);
 }
 
-static void pm_timer_cb(void *arg)
+/* Slow housekeeping in a plain task: LVGL and lock-waits must never run on
+   the shared esp_timer task (LVGL's own tick lives there). */
+static void housekeeping_task(void *arg)
 {
     (void)arg;
-    /* Re-evaluate clocks while dozing: USB plug/unplug changes the answer. */
-    if (current == DEVICE_STATE_DOZING) apply_power();
-    /* Keep the offline icon honest while the screen is up. */
-    if (current == DEVICE_STATE_ACTIVE) {
-        bsp_display_lock(0);
-        watchface_set_wifi_offline(device_wifi_is_offline());
-        bsp_display_unlock();
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        if (current == DEVICE_STATE_DOZING) apply_power();
+        if (current == DEVICE_STATE_ACTIVE) {
+            bsp_display_lock(0);
+            watchface_set_wifi_offline(device_wifi_is_offline());
+            bsp_display_unlock();
+        }
     }
 }
 
 void device_state_init(void)
 {
     state_mutex = xSemaphoreCreateMutex();
-    const esp_timer_create_args_t timer_args = {
-        .callback = pm_timer_cb,
-        .name = "state_pm",
-    };
-    esp_timer_create(&timer_args, &pm_timer);
-    esp_timer_start_periodic(pm_timer, 5 * 1000 * 1000);
+    xTaskCreate(housekeeping_task, "statehk", 3072, NULL, 2, NULL);
 }
