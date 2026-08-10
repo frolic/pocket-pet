@@ -24,5 +24,8 @@ void device_wifi_window_end(void);
 /* No known network was reachable at the last attempt. */
 bool device_wifi_is_offline(void);
 
-/* Reboots into the captive setup portal (wifi icon tap). */
-void device_wifi_setup_reboot(void);
+/* Enters the captive setup portal at runtime (wifi icon tap); no reboot. */
+void device_wifi_request_portal(void);
+
+/* Tears the portal down and returns to normal operation (cancel). */
+void device_wifi_portal_exit(void);

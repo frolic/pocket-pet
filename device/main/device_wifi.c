@@ -200,6 +200,8 @@ static void restart_task(void *arg)
     esp_restart();
 }
 
+static void ensure_wifi_inited(void);
+
 static int station_failures;
 static bool station_ever_connected;
 static bool validating_boot; /* creds fresh from the portal: unproven */
@@ -357,8 +359,7 @@ static void give_up_offline(void)
 static void station_start(void)
 {
     esp_netif_create_default_wifi_sta();
-    wifi_init_config_t init_config = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&init_config));
+    ensure_wifi_inited();
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, station_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, station_event, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
@@ -544,13 +545,27 @@ static esp_err_t portal_save_handler(httpd_req_t *request)
     return ESP_OK;
 }
 
+static bool wifi_inited;
+static esp_netif_t *portal_ap_netif;
+static httpd_handle_t portal_server;
+static bool dns_task_spawned;
+
+static void ensure_wifi_inited(void)
+{
+    if (wifi_inited) return;
+    wifi_init_config_t init_config = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&init_config));
+    wifi_inited = true;
+}
+
+/* Runtime-safe: callable at boot (force_portal) or from a live session
+   (wifi-icon tap). The radio must be silent on entry. */
 static void portal_start(void)
 {
     load_and_clear_last_error();
 
-    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
-    wifi_init_config_t init_config = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&init_config));
+    if (portal_ap_netif == NULL) portal_ap_netif = esp_netif_create_default_wifi_ap();
+    ensure_wifi_inited();
     wifi_config_t config = {
         .ap = {
             .ssid = SETUP_SSID,
@@ -560,6 +575,7 @@ static void portal_start(void)
         },
     };
     /* APSTA only so the scan works — the STA interface never connects here. */
+    esp_wifi_stop();
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &config));
     device_flush_gate_close();
@@ -571,26 +587,30 @@ static void portal_start(void)
     esp_netif_dns_info_t dns = {0};
     dns.ip.type = ESP_IPADDR_TYPE_V4;
     dns.ip.u_addr.ip4.addr = esp_ip4addr_aton(PORTAL_IP);
-    esp_netif_dhcps_stop(ap_netif);
-    ESP_ERROR_CHECK(esp_netif_set_dns_info(ap_netif, ESP_NETIF_DNS_MAIN, &dns));
+    esp_netif_dhcps_stop(portal_ap_netif);
+    ESP_ERROR_CHECK(esp_netif_set_dns_info(portal_ap_netif, ESP_NETIF_DNS_MAIN, &dns));
     dhcps_offer_t dns_offer = OFFER_DNS;
-    ESP_ERROR_CHECK(esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET,
+    ESP_ERROR_CHECK(esp_netif_dhcps_option(portal_ap_netif, ESP_NETIF_OP_SET,
                                            ESP_NETIF_DOMAIN_NAME_SERVER,
                                            &dns_offer, sizeof(dns_offer)));
-    esp_netif_dhcps_start(ap_netif);
+    esp_netif_dhcps_start(portal_ap_netif);
 
     portal_scan_networks();
-    xTaskCreate(dns_hijack_task, "dns_hijack", 4096, NULL, 5, NULL);
+    if (!dns_task_spawned) {
+        /* Blocks in recvfrom when the AP is down — safe to keep across
+           portal sessions. */
+        xTaskCreate(dns_hijack_task, "dns_hijack", 4096, NULL, 5, NULL);
+        dns_task_spawned = true;
+    }
 
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
     server_config.stack_size = 8192;
     server_config.uri_match_fn = httpd_uri_match_wildcard;
-    httpd_handle_t server = NULL;
-    ESP_ERROR_CHECK(httpd_start(&server, &server_config));
+    ESP_ERROR_CHECK(httpd_start(&portal_server, &server_config));
     httpd_uri_t save_uri = {.uri = "/save", .method = HTTP_POST, .handler = portal_save_handler};
     httpd_uri_t any_uri = {.uri = "/*", .method = HTTP_GET, .handler = portal_get_handler};
-    httpd_register_uri_handler(server, &save_uri);
-    httpd_register_uri_handler(server, &any_uri);
+    httpd_register_uri_handler(portal_server, &save_uri);
+    httpd_register_uri_handler(portal_server, &any_uri);
     printf("device_wifi: setup portal at http://%s (join '%s')\n", PORTAL_IP, SETUP_SSID);
     in_portal = true;
     radio_active = true;
@@ -647,11 +667,38 @@ bool device_wifi_is_offline(void)
     return offline;
 }
 
-void device_wifi_setup_reboot(void)
+static void enter_portal_task(void *arg)
 {
-    printf("device_wifi: user requested setup portal — rebooting\n");
-    set_u8("force_portal", 1);
-    esp_restart();
+    (void)arg;
+    if (!in_portal && !radio_active) {
+        printf("device_wifi: entering setup portal (runtime)\n");
+        device_state_portal();
+        portal_start();
+    }
+    vTaskDelete(NULL);
+}
+
+void device_wifi_request_portal(void)
+{
+    /* Safe from LVGL context: the heavy lifting (which must wait on the
+       LVGL task via the flush gate) runs in its own task. */
+    xTaskCreate(enter_portal_task, "portal_in", 4096, NULL, 4, NULL);
+}
+
+void device_wifi_portal_exit(void)
+{
+    if (!in_portal) return;
+    printf("device_wifi: leaving setup portal\n");
+    if (portal_server != NULL) {
+        httpd_stop(portal_server);
+        portal_server = NULL;
+    }
+    esp_wifi_stop();
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    device_flush_gate_open();
+    in_portal = false;
+    radio_active = false;
+    device_state_portal_exit();
 }
 
 bool device_wifi_in_portal(void)

@@ -30,5 +30,8 @@ void device_state_release_radio(void);
 /* Boot-time STA sync started (screen is up: banner + frozen pet). */
 void device_state_boot_sync(void);
 
-/* Captive portal mode: terminal banner state. */
+/* Captive portal mode (setup modal; renderer gated by the flush gate). */
 void device_state_portal(void);
+
+/* Portal cancelled: back to normal operation. */
+void device_state_portal_exit(void);

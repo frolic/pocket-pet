@@ -12,7 +12,6 @@
 #include "device_wifi.h"
 #include "device_touch_raw.h"
 #include "power_button.h"
-#include "esp_system.h"
 
 /*
  * The device mode state machine — single owner of the radio/display truce.
@@ -147,22 +146,26 @@ void device_state_boot_sync(void)
     if (changed) apply_ui(false);
 }
 
-/* With the renderer stopped, LVGL's input pipeline is dead too: watch the
-   touch controller and power button raw. Cancel (or PWR) reboots back to
-   normal operation — the portal state is terminal either way. */
+/* The flush gate freezes rendering but not input; still, hit-test raw
+   touch (simple and robust) plus PWR. Cancel tears the portal down and
+   returns to normal operation — no reboot. */
 static void portal_input_task(void *arg)
 {
     (void)arg;
     int cancel_min_y = watchface_setup_modal_cancel_min_y();
-    while (true) {
+    /* Debounce the entry tap so it doesn't immediately cancel. */
+    vTaskDelay(pdMS_TO_TICKS(600));
+    while (current == DEVICE_STATE_PORTAL) {
         vTaskDelay(pdMS_TO_TICKS(100));
         int x, y;
         if (power_button_pressed() ||
             (device_touch_raw_get(&x, &y) && y >= cancel_min_y)) {
-            printf("device_state: setup cancelled — rebooting\n");
-            esp_restart();
+            printf("device_state: setup cancelled\n");
+            device_wifi_portal_exit();
+            break;
         }
     }
+    vTaskDelete(NULL);
 }
 
 void device_state_portal(void)
@@ -175,6 +178,15 @@ void device_state_portal(void)
         apply_ui(false);
         xTaskCreate(portal_input_task, "portalin", 3072, NULL, 3, NULL);
     }
+}
+
+void device_state_portal_exit(void)
+{
+    bool changed = false;
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    if (current == DEVICE_STATE_PORTAL) changed = transition(DEVICE_STATE_ACTIVE);
+    xSemaphoreGive(state_mutex);
+    if (changed) apply_ui(false);
 }
 
 /* Slow housekeeping in a plain task: LVGL and lock-waits must never run on
