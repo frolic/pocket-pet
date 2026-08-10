@@ -532,12 +532,13 @@ static lv_display_t *bsp_display_lcd_init()
         },
         .flags = {
             .sw_rotate = true,
-            .buff_dma = false,
-            /* Vendored change: draw buffer in PSRAM. Internal RAM is the
-               scarce resource once wifi AP+STA run (12KB min observed);
-               heap exhaustion there starves SPI transactions (dropped
-               flushes). S3 GDMA reads PSRAM fine. */
-            .buff_spiram = true,
+            /* Vendored change: draw buffer in internal DMA memory. PSRAM
+               draw buffers scramble under flush: GDMA reads race CPU
+               writes/cache write-back (block-shuffled sprites). Internal
+               is affordable now that the device state machine guarantees
+               the radio never runs while the screen flushes. */
+            .buff_dma = true,
+            .buff_spiram = false,
 #if CONFIG_BSP_DISPLAY_LVGL_FULL_REFRESH
             .full_refresh = 1,
 #elif CONFIG_BSP_DISPLAY_LVGL_DIRECT_MODE

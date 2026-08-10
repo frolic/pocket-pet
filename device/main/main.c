@@ -42,8 +42,8 @@ void app_main(void)
         .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,
         .double_buffer = BSP_LCD_DRAW_BUFF_DOUBLE,
         .flags = {
-            .buff_dma = false,
-            .buff_spiram = true,
+            .buff_dma = true,
+            .buff_spiram = false,
         }};
     display_config.lvgl_port_cfg.task_affinity = 1;
     bsp_display_start_with_config(&display_config);
