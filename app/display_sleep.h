@@ -16,6 +16,10 @@ void display_sleep_init(uint32_t timeout_ms);
 /* Registers the platform brightness hook (percent, 0 = pixels off). */
 void display_sleep_set_dim_cb(void (*dim_cb)(uint8_t brightness_percent));
 
+/* Fires when the screen finishes going dark (fade complete) or wakes.
+   Called from LVGL context. */
+void display_sleep_set_state_cb(void (*state_cb)(bool asleep));
+
 bool display_sleep_is_asleep(void);
 
 /* Any user activity: postpones (or does nothing if already asleep). */

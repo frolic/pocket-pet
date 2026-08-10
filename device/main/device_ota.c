@@ -8,7 +8,7 @@
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "device_wifi.h"
-#include "display_sleep.h"
+#include "device_state.h"
 #include "step_source.h"
 #include "battery_source.h"
 #include "device_debug.h"
@@ -95,9 +95,8 @@ static void ota_task(void *arg)
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(OTA_FIRST_CHECK_MS));
     while (true) {
-        /* Radio only speaks while the screen sleeps: a dark panel has no
-           flushes to corrupt and the user never sees the freeze. */
-        if (!display_sleep_is_asleep()) {
+        /* Windows are granted only from DOZING (screen dark and static). */
+        if (!device_state_request_radio()) {
             vTaskDelay(pdMS_TO_TICKS(OTA_AWAKE_RETRY_MS));
             continue;
         }
@@ -113,6 +112,7 @@ static void ota_task(void *arg)
             }
             device_wifi_window_end();
         }
+        device_state_release_radio();
         vTaskDelay(pdMS_TO_TICKS(OTA_INTERVAL_MS));
     }
 }

@@ -5,3 +5,4 @@ device/build/
 device/sdkconfig
 device/managed_components/
 device/dependencies.lock
+device/version.txt

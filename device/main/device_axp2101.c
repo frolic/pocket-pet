@@ -3,6 +3,7 @@
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
 #include "power_button.h"
 #include "battery_source.h"
+#include "device_axp2101.h"
 
 /*
  * AXP2101 PMIC: power-key short press (polled via IRQ status; long press
@@ -13,6 +14,7 @@
  */
 
 #define AXP2101_ADDRESS 0x34
+#define REG_STATUS1 0x00
 #define REG_STATUS2 0x01
 #define REG_INTEN2 0x41
 #define REG_INTSTS2 0x49
@@ -74,6 +76,13 @@ bool battery_source_charging(void)
     uint8_t status;
     if (!ensure_ready() || !read_register(REG_STATUS2, &status)) return false;
     return ((status >> 5) & 0x03) == 0x01;
+}
+
+bool axp2101_vbus_present(void)
+{
+    uint8_t status;
+    if (!ensure_ready() || !read_register(REG_STATUS1, &status)) return false;
+    return (status & (1 << 5)) != 0; /* VBUS good */
 }
 
 bool power_button_pressed(void)

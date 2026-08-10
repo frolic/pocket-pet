@@ -9,6 +9,7 @@ static bool settling;
 static uint32_t settle_started_tick;
 static uint32_t pet_asleep_since_tick;
 static void (*dim_cb)(uint8_t brightness_percent);
+static void (*state_cb)(bool asleep);
 
 /* Bedtime choreography: the pet visibly settles before the screen fades. */
 #define SLEEP_POSE_LINGER_MS 1200
@@ -44,6 +45,7 @@ static void fade_done(lv_anim_t *anim)
     LV_UNUSED(anim);
     pet_freeze(true);
     if (dim_cb != NULL) dim_cb(0);
+    if (state_cb != NULL) state_cb(true);
 }
 
 static void go_to_sleep(void)
@@ -116,6 +118,11 @@ void display_sleep_set_dim_cb(void (*cb)(uint8_t brightness_percent))
     dim_cb = cb;
 }
 
+void display_sleep_set_state_cb(void (*cb)(bool asleep))
+{
+    state_cb = cb;
+}
+
 bool display_sleep_is_asleep(void)
 {
     return asleep;
@@ -139,5 +146,6 @@ void display_sleep_wake(void)
     lv_obj_add_flag(blanket, LV_OBJ_FLAG_HIDDEN);
     pet_freeze(false);
     if (dim_cb != NULL) dim_cb(AWAKE_BRIGHTNESS);
+    if (state_cb != NULL) state_cb(false);
     lv_display_trigger_activity(NULL);
 }

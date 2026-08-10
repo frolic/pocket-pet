@@ -8,6 +8,8 @@
 #include "device_debug.h"
 #include "device_wifi.h"
 #include "device_ota.h"
+#include "device_power.h"
+#include "device_state.h"
 #include "display_sleep.h"
 #include "frolic_app.h"
 #include "pet.h"
@@ -49,9 +51,12 @@ void app_main(void)
     bsp_display_lock(0);
     frolic_app_init(lv_screen_active());
     display_sleep_set_dim_cb(display_dim);
+    display_sleep_set_state_cb(device_state_report_display);
     bsp_display_unlock();
 
 #ifndef FROLIC_DISABLE_WIFI
+    device_power_init();
+    device_state_init();
     device_wifi_start();
     device_ota_start();
 #endif

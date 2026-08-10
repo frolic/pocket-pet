@@ -19,6 +19,7 @@
 #include "dhcpserver/dhcpserver.h"
 #include "dhcpserver/dhcpserver_options.h"
 #include "device_wifi.h"
+#include "device_state.h"
 
 #ifdef FROLIC_DEBUG
 #define WIFI_TRACE(...) printf("WIFI-TRACE: " __VA_ARGS__)
@@ -146,6 +147,7 @@ static void radio_off_timer_cb(void *arg)
     esp_sntp_stop();
     esp_wifi_stop();
     radio_active = false;
+    device_state_release_radio();
 }
 
 static void on_time_synced(struct timeval *tv)
@@ -460,11 +462,9 @@ bool device_wifi_window_begin(uint32_t timeout_ms)
     if (window_events == NULL) window_events = xEventGroupCreate();
     xEventGroupClearBits(window_events, WINDOW_GOT_IP_BIT);
     window_mode = true;
-    /* Raise the radio-active flag FIRST and give the main loop time to
-       freeze the pet and land the banner frame — radio and in-flight
-       flushes corrupt each other on this board. */
+    /* The device state machine only grants windows from DOZING, so the
+       screen is already dark and static here. */
     radio_active = true;
-    vTaskDelay(pdMS_TO_TICKS(900));
     if (esp_wifi_start() != ESP_OK) {
         radio_active = false;
         window_mode = false;
@@ -485,8 +485,6 @@ void device_wifi_window_end(void)
 {
     esp_wifi_stop();
     window_mode = false;
-    /* Let the radio spin down fully before animation resumes. */
-    vTaskDelay(pdMS_TO_TICKS(300));
     radio_active = false;
 }
 
@@ -526,7 +524,9 @@ void device_wifi_start(void)
 
     if (!force_portal && load_credentials()) {
         station_start();
+        device_state_boot_sync();
     } else {
         portal_start();
+        device_state_portal();
     }
 }

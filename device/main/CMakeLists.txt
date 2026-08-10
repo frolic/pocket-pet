@@ -3,6 +3,8 @@ idf_component_register(
         "main.c"
         "device_wifi.c"
         "device_ota.c"
+        "device_power.c"
+        "device_state.c"
         "device_debug.c"
         "device_button_source.c"
         "device_axp2101.c"
