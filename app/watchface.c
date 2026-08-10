@@ -237,7 +237,7 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_align(wifi_icon, LV_ALIGN_TOP_RIGHT, -84, 24);
     lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_ext_click_area(wifi_icon, 12);
+    lv_obj_set_ext_click_area(wifi_icon, 36);
     lv_obj_add_event_cb(wifi_icon, wifi_icon_clicked, LV_EVENT_CLICKED, NULL);
     /* A red signal fan: dot at the bottom, arcs widening upward. */
     static const struct { int8_t x, y, w; } wifi_pixels[] = {
