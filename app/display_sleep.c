@@ -146,6 +146,12 @@ void display_sleep_sleep_now(void)
     if (!asleep) go_to_sleep();
 }
 
+static void wake_backlight_cb(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    if (dim_cb != NULL) dim_cb(AWAKE_BRIGHTNESS);
+}
+
 void display_sleep_wake(void)
 {
     if (!asleep) return;
@@ -153,7 +159,14 @@ void display_sleep_wake(void)
     lv_anim_delete(blanket, fade_exec);
     lv_obj_add_flag(blanket, LV_OBJ_FLAG_HIDDEN);
     pet_freeze(false);
-    if (dim_cb != NULL) dim_cb(AWAKE_BRIGHTNESS);
     if (state_cb != NULL) state_cb(false);
     lv_display_trigger_activity(NULL);
+    if (dim_cb != NULL) {
+        /* Ship the wake frame to the panel while it's still dark, THEN
+           light it — brightness-first shows the write in progress (a
+           guaranteed tear at every wake). */
+        lv_refr_now(NULL);
+        lv_timer_t *timer = lv_timer_create(wake_backlight_cb, 80, NULL);
+        lv_timer_set_repeat_count(timer, 1);
+    }
 }
