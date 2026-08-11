@@ -435,11 +435,6 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
     ESP_ERROR_CHECK(spi_bus_initialize(BSP_LCD_SPI_NUM, &buscfg, SPI_DMA_CH_AUTO));
 
     esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS, NULL, NULL);
-    /* Internal-RAM DMA feeds QSPI at full rate (PSRAM sources were always
-       throttled by PSRAM reads) and the link drops bits in sustained 40MHz
-       bursts — thin garbage rows on the glass, invisible to every counter.
-       26MHz trades ~2x flush time (still ~30ms/full frame) for integrity. */
-    io_config.pclk_hz = 26 * 1000 * 1000;
 
     /* Vendored change: deeper transaction queue absorbs flush bursts when
        wifi traffic delays the LVGL task (stock depth 10 dropped flushes). */
@@ -528,10 +523,7 @@ static lv_display_t *bsp_display_lcd_init()
         .hres = BSP_LCD_H_RES,
         .vres = BSP_LCD_V_RES,
 #if LVGL_VERSION_MAJOR >= 9
-        /* Render directly in the panel's byte order: the post-render
-           in-place swap raced the DMA on internal buffers (pale-green
-           stripe rows = unswapped RGB565). No swap pass, no race. */
-        .color_format = LV_COLOR_FORMAT_RGB565_SWAPPED,
+        .color_format = LV_COLOR_FORMAT_RGB565,
 #endif
 
         .rotation = {
@@ -556,7 +548,7 @@ static lv_display_t *bsp_display_lcd_init()
             .direct_mode = 1,
 #endif
 #if LVGL_VERSION_MAJOR >= 9
-            .swap_bytes = false,
+            .swap_bytes = true,
 #endif
         }};
     const lvgl_port_display_rgb_cfg_t rgb_cfg = {
