@@ -163,6 +163,12 @@ void device_state_boot_sync(void)
     if (changed) apply_ui(false);
 }
 
+static void portal_wake_cb(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    display_sleep_wake();
+}
+
 /* The flush gate freezes rendering but not input; still, hit-test raw
    touch (simple and robust) plus PWR. Cancel tears the portal down and
    returns to normal operation — no reboot. */
@@ -200,6 +206,13 @@ void device_state_portal(void)
     xSemaphoreGive(state_mutex);
     if (changed) {
         apply_ui(false);
+        /* Entering setup with the screen dark: wake it (LVGL context — the
+           wake path renders). Runs before the flush gate's landing render
+           seals the pipeline. */
+        bsp_display_lock(0);
+        lv_timer_t *wake_timer = lv_timer_create(portal_wake_cb, 5, NULL);
+        lv_timer_set_repeat_count(wake_timer, 1);
+        bsp_display_unlock();
         xTaskCreate(portal_input_task, "portalin", 3072, NULL, 3, NULL);
     }
 }

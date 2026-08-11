@@ -14,6 +14,7 @@
 #include "device_debug_console.h"
 #include "device_debug.h"
 #include "display_sleep.h"
+#include "device_wifi.h"
 
 /*
  * Line-based debug console on the USB serial for remote-driving the watch:
@@ -160,6 +161,12 @@ static void console_task(void *arg)
         } else if (strcmp(line, "sleep") == 0) {
             run_in_lvgl(sleep_cb);
             printf("sleep: ok\n");
+        } else if (strcmp(line, "portal") == 0) {
+            device_wifi_request_portal();
+            printf("portal: requested\n");
+        } else if (strcmp(line, "portalx") == 0) {
+            device_wifi_portal_exit();
+            printf("portal: exited\n");
         } else if (strncmp(line, "time ", 5) == 0) {
             int year, month, day, hour, minute;
             if (sscanf(line + 5, "%d %d %d %d %d", &year, &month, &day, &hour, &minute) == 5) {
@@ -191,6 +198,7 @@ static void console_task(void *arg)
 void device_debug_console_start(void)
 {
     usb_serial_jtag_driver_config_t config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    config.tx_buffer_size = 4096;
     usb_serial_jtag_driver_install(&config);
 
     bsp_display_lock(0);
