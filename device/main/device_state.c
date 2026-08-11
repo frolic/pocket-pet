@@ -33,6 +33,7 @@
 static device_state_t current = DEVICE_STATE_ACTIVE;
 static SemaphoreHandle_t state_mutex;
 static uint32_t radio_state_entered_ms;
+static bool boot_sync; /* this radio session is the boot clock sync */
 
 /* Radio states must be transient (PORTAL excepted — the user is driving).
    A hung window otherwise leaves the gate closed forever: frozen banner,
@@ -88,6 +89,9 @@ static void apply_ui(bool in_lvgl_context)
     if (!in_lvgl_context) bsp_display_lock(0);
     pet_set_paused(paused);
     watchface_set_banner(banner);
+    /* Boot sync presents as a boot screen: scene blacked out, banner only.
+       Mid-session windows keep the frozen-scene look. */
+    watchface_set_boot_cover(current == DEVICE_STATE_SYNC_VISIBLE && boot_sync);
     watchface_show_setup_modal(current == DEVICE_STATE_PORTAL);
     /* Setup keeps the screen on; the gate means a timeout could never
        redraw the wake. */
@@ -114,6 +118,7 @@ static bool transition(device_state_t next)
     if (is_radio_state(next) && !is_radio_state(current)) {
         radio_state_entered_ms = (uint32_t)(esp_timer_get_time() / 1000);
     }
+    if (!is_radio_state(next)) boot_sync = false;
     current = next;
     apply_power();
     return true;
@@ -165,6 +170,7 @@ void device_state_boot_sync(void)
     /* Boot-time clock sync: screen is up, so show the truce explicitly. */
     bool changed = false;
     xSemaphoreTake(state_mutex, portMAX_DELAY);
+    boot_sync = true;
     changed = transition(DEVICE_STATE_SYNC_VISIBLE);
     xSemaphoreGive(state_mutex);
     if (changed) apply_ui(false);
