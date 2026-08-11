@@ -19,6 +19,7 @@
 #include "dhcpserver/dhcpserver.h"
 #include "dhcpserver/dhcpserver_options.h"
 #include "device_wifi.h"
+#include "device_rtc.h"
 #include "device_state.h"
 #include "device_flush_gate.h"
 
@@ -54,7 +55,8 @@ static int validating_index = -1; /* freshly-entered creds awaiting proof */
 static char last_error[96];
 static bool in_portal;
 static bool radio_active;
-static bool offline; /* no known network reachable at the last attempt */
+static bool connected; /* station associated with an IP right now */
+static bool offline;   /* no known network reachable at the last attempt */
 
 /* ---------- NVS ---------- */
 
@@ -224,6 +226,8 @@ static void radio_off_timer_cb(void *arg)
 static void on_time_synced(struct timeval *tv)
 {
     printf("device_wifi: SNTP time sync complete\n");
+    /* Persist into the battery-backed RTC: future boots skip the sync. */
+    device_rtc_store();
     /* Let SNTP finish its bookkeeping, then silence the radio. */
     const esp_timer_create_args_t timer_args = {
         .callback = radio_off_timer_cb,
@@ -245,6 +249,7 @@ static void station_event(void *arg, esp_event_base_t base, int32_t id, void *da
        not a trigger here. */
     if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_STOP || id == WIFI_EVENT_STA_START)) return;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        connected = false;
         if (station_ever_connected) {
             /* Drops while the radio is meant to be up (sync window, boot
                sync) retry — a post-IP drop during boot sync otherwise idles
@@ -280,6 +285,7 @@ static void station_event(void *arg, esp_event_base_t base, int32_t id, void *da
     }
     if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         station_ever_connected = true;
+        connected = true;
         offline = false;
         if (validating_index >= 0) {
             set_u8("validating", 0);
@@ -358,13 +364,20 @@ static void give_up_offline(void)
     device_state_release_radio();
 }
 
-static void station_start(void)
+/* Everything station mode needs short of raising the radio — also the
+   prelude for RTC-restored boots, where only sync windows ever use wifi. */
+static void station_prepare(void)
 {
     esp_netif_create_default_wifi_sta();
     ensure_wifi_inited();
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, station_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, station_event, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+}
+
+static void station_start(void)
+{
+    station_prepare();
     /* Boot sync runs with LIVE rendering: the eyes-verified radio test
        (harness mode 2, H3/H4) showed clean animation under active
        scanning once the flush pipeline gained real wait semantics. Dark
@@ -724,6 +737,11 @@ bool device_wifi_radio_active(void)
     return radio_active;
 }
 
+bool device_wifi_is_connected(void)
+{
+    return connected;
+}
+
 void device_wifi_start(void)
 {
     /* Local clock renders in London time, DST-aware, once SNTP lands. */
@@ -752,8 +770,13 @@ void device_wifi_start(void)
         validating_boot = get_u8("validating") != 0;
         validating_index = validating_boot ? (int)get_u8("validating_idx") : -1;
         if (validating_index >= network_count) validating_index = network_count - 1;
-        /* Freeze the scene BEFORE the radio, and give the first full paint
-           a moment to drain — the boot scan corrupts in-flight flushes. */
+        if (device_rtc_time_valid() && !validating_boot) {
+            /* The RTC already made the clock honest: no visible boot sync.
+               Drift correction and OTA ride the dozing sync windows. */
+            printf("device_wifi: clock from RTC — skipping boot sync\n");
+            station_prepare();
+            return;
+        }
         device_state_boot_sync();
         vTaskDelay(pdMS_TO_TICKS(1200));
         station_start();

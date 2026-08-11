@@ -35,6 +35,9 @@ static lv_obj_t *record_dot;
 static lv_obj_t *battery_root;
 static lv_obj_t *battery_fill;
 static lv_obj_t *wifi_icon;
+static lv_obj_t *wifi_bars[3];
+static watchface_wifi_state_t wifi_state;
+static lv_timer_t *wifi_blink_timer;
 static lv_obj_t *setup_modal;
 static lv_obj_t *setup_modal_content;
 static void (*wifi_tap_cb)(void);
@@ -43,6 +46,16 @@ static void (*wifi_tap_cb)(void);
 #define MODAL_DIALOG_HEIGHT 300
 #define MODAL_CANCEL_TOP (MODAL_DIALOG_TOP + MODAL_DIALOG_HEIGHT - 88)
 
+/* Seeking reads as activity: the fan pulses while connecting. */
+static void wifi_blink_tick(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    if (wifi_state != WATCHFACE_WIFI_CONNECTING) return;
+    static bool dim;
+    dim = !dim;
+    lv_obj_set_style_opa(wifi_icon, dim ? LV_OPA_40 : LV_OPA_COVER, 0);
+}
+
 static void wifi_icon_clicked(lv_event_t *event)
 {
     LV_UNUSED(event);
@@ -50,6 +63,7 @@ static void wifi_icon_clicked(lv_event_t *event)
 }
 
 #define WIFI_SLASH_COLOR lv_color_hex(0xD84030)
+#define WIFI_SEEKING_COLOR lv_color_hex(0xF8D030)
 
 /* Battery icon in HUD art-pixels (PX=4 screen px each): 9x5 body + 1x3 nub. */
 #define BATTERY_PX 4
@@ -231,7 +245,7 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(battery_fill, LV_OPA_COVER, 0);
     lv_obj_set_pos(battery_fill, BATTERY_PX, BATTERY_PX);
 
-    /* Offline marker: pixel wifi fan with a red slash. Tap = fix it. */
+    /* Radio status: pixel wifi fan, tinted by state. Tap = wifi setup. */
     wifi_icon = lv_obj_create(screen);
     lv_obj_remove_style_all(wifi_icon);
     lv_obj_set_size(wifi_icon, 8 * BATTERY_PX, 6 * BATTERY_PX);
@@ -240,7 +254,7 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_ext_click_area(wifi_icon, 36);
     lv_obj_add_event_cb(wifi_icon, wifi_icon_clicked, LV_EVENT_CLICKED, NULL);
-    /* A red signal fan: dot at the bottom, arcs widening upward. */
+    /* A signal fan: dot at the bottom, arcs widening upward. */
     static const struct { int8_t x, y, w; } wifi_pixels[] = {
         {1, 0, 6}, {2, 2, 4}, {3, 4, 2},
     };
@@ -251,13 +265,30 @@ void watchface_create(lv_obj_t *parent)
         lv_obj_set_pos(px, wifi_pixels[i].x * BATTERY_PX, wifi_pixels[i].y * BATTERY_PX);
         lv_obj_set_style_bg_color(px, WIFI_SLASH_COLOR, 0);
         lv_obj_set_style_bg_opa(px, LV_OPA_COVER, 0);
+        wifi_bars[i] = px;
     }
+    wifi_blink_timer = lv_timer_create(wifi_blink_tick, 400, NULL);
 }
 
-void watchface_set_wifi_offline(bool wifi_offline)
+void watchface_set_wifi(watchface_wifi_state_t state)
 {
-    if (wifi_offline) lv_obj_remove_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
+    if (state == wifi_state) return;
+    wifi_state = state;
+    if (state == WATCHFACE_WIFI_HIDDEN) {
+        lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_color_t tint;
+    switch (state) {
+    case WATCHFACE_WIFI_CONNECTING: tint = WIFI_SEEKING_COLOR; break;
+    case WATCHFACE_WIFI_CONNECTED: tint = lv_color_white(); break;
+    default: tint = WIFI_SLASH_COLOR; break; /* offline / stranded: red */
+    }
+    for (size_t i = 0; i < 3; i++) {
+        lv_obj_set_style_bg_color(wifi_bars[i], tint, 0);
+    }
+    lv_obj_set_style_opa(wifi_icon, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
 }
 
 void watchface_set_wifi_tap_cb(void (*tap_cb)(void))

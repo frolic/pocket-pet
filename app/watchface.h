@@ -23,7 +23,15 @@ void watchface_set_banner(const char *text);
 void watchface_set_battery(int percent, bool charging);
 
 /* Wifi-disconnected icon beside the battery (hidden when online). */
-void watchface_set_wifi_offline(bool offline);
+typedef enum {
+    WATCHFACE_WIFI_HIDDEN,     /* radio off, all good — no icon */
+    WATCHFACE_WIFI_OFFLINE,    /* radio off, no known network reachable (red) */
+    WATCHFACE_WIFI_CONNECTING, /* radio up, seeking (yellow, blinking) */
+    WATCHFACE_WIFI_CONNECTED,  /* radio up, association + IP (white) */
+    WATCHFACE_WIFI_STRANDED,   /* radio up, nothing established (red) */
+} watchface_wifi_state_t;
+
+void watchface_set_wifi(watchface_wifi_state_t state);
 
 /* Tapping the wifi-disconnected icon (device: reboot into setup). */
 void watchface_set_wifi_tap_cb(void (*tap_cb)(void));

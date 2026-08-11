@@ -14,6 +14,7 @@ idf_component_register(
         "device_wifi.c"
         "device_ota.c"
         "device_power.c"
+        "device_rtc.c"
         "device_sleep.c"
         "device_state.c"
         "device_touch_raw.c"

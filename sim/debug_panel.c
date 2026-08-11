@@ -43,7 +43,8 @@ static void wifi_clicked(lv_event_t *event)
 {
     LV_UNUSED(event);
     wifi_offline_sim = !wifi_offline_sim;
-    watchface_set_wifi_offline(wifi_offline_sim);
+    watchface_set_wifi(wifi_offline_sim ? WATCHFACE_WIFI_OFFLINE
+                                        : WATCHFACE_WIFI_HIDDEN);
 }
 
 static void battery_clicked(lv_event_t *event)

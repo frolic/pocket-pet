@@ -12,6 +12,7 @@
 #include "device_wifi.h"
 #include "device_ota.h"
 #include "device_power.h"
+#include "device_rtc.h"
 #include "device_sleep.h"
 #include "device_state.h"
 #include "device_debug_console.h"
@@ -28,6 +29,26 @@ static void lvgl_liveness_tick(lv_timer_t *timer)
     LV_UNUSED(timer);
     device_debug_note_lvgl_alive();
 }
+
+#ifndef FROLIC_DISABLE_WIFI
+/* Radio status onto the watchface: red = radio up but nothing established
+   (or offline with the radio down), pulsing yellow = seeking, white =
+   connected. Runs on the LVGL task, so no display lock needed. */
+static void wifi_icon_tick(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    watchface_wifi_state_t state;
+    if (device_wifi_radio_active()) {
+        if (device_wifi_is_connected()) state = WATCHFACE_WIFI_CONNECTED;
+        else if (device_wifi_in_portal()) state = WATCHFACE_WIFI_STRANDED;
+        else state = WATCHFACE_WIFI_CONNECTING;
+    } else {
+        state = device_wifi_is_offline() ? WATCHFACE_WIFI_OFFLINE
+                                         : WATCHFACE_WIFI_HIDDEN;
+    }
+    watchface_set_wifi(state);
+}
+#endif
 
 static void display_dim(uint8_t brightness_percent)
 {
@@ -84,12 +105,16 @@ void app_main(void)
     display_sleep_set_state_cb(device_state_report_display);
 #ifndef FROLIC_DISABLE_WIFI
     watchface_set_wifi_tap_cb(device_wifi_request_portal);
+    lv_timer_create(wifi_icon_tick, 500, NULL);
 #endif
     bsp_display_unlock();
 
     /* London time regardless of wifi (SNTP normally sets this up). */
     setenv("TZ", "GMT0BST,M3.5.0/1,M10.5.0", 1);
     tzset();
+    /* Battery-backed RTC: an honest clock from second one on every boot
+       where the chip kept power — the wifi boot sync then skips itself. */
+    device_rtc_restore();
 
     device_power_init();
     device_state_init();

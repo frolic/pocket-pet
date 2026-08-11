@@ -245,11 +245,6 @@ static void housekeeping_task(void *arg)
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(5000));
         if (current == DEVICE_STATE_DOZING) apply_power();
-        if (current == DEVICE_STATE_ACTIVE) {
-            bsp_display_lock(0);
-            watchface_set_wifi_offline(device_wifi_is_offline());
-            bsp_display_unlock();
-        }
         if (current == DEVICE_STATE_SYNCING || current == DEVICE_STATE_SYNC_VISIBLE) {
             uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
             if (now - radio_state_entered_ms > RADIO_STATE_TIMEOUT_MS) {
