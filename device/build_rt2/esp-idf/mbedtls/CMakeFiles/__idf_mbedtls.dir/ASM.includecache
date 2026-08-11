@@ -1,0 +1,10 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/build_rt2/x509_crt_bundle.S
+

@@ -1,0 +1,11 @@
+file(REMOVE_RECURSE
+  "config/sdkconfig.h"
+  "config/sdkconfig.cmake"
+  "bootloader/bootloader.elf"
+  "bootloader/bootloader.bin"
+  "bootloader/bootloader.map"
+  "frolic.bin"
+  "flash_project_args"
+  "frolic.map"
+  "project_elf_src_esp32s3.c"
+)

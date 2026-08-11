@@ -6,18 +6,33 @@ relearned the expensive way.
 
 ## Hardware landmines (each cost real time — do not relitigate)
 
-### 1. The draw buffer MUST live in PSRAM. This is the big one.
-`buff_spiram = true, buff_dma = false` in the LVGL display config
-(`device/main/main.c` AND the vendored BSP
-`device/components/esp32_s3_touch_amoled_2_06/esp32_s3_touch_amoled_2_06.c`).
+### 1. The flush pipeline MUST wait for real SPI completion. (RESOLVED 2026-08-11 — read the history before touching the flush path)
+The historic rule here ("draw buffer MUST live in PSRAM, internal-DMA
+stripes the panel") was a MISDIAGNOSIS, fully characterized by the
+FROLIC_RENDER_TEST harness. The true mechanism, three layers deep:
 
-An **internal-DMA draw buffer** (`buff_dma = true, buff_spiram = false`)
-produces persistent **horizontal green/white stripe corruption** on this
-CO5300 QSPI AMOLED. This is the single cause of the "tearing/stripes" saga.
-Do NOT switch the draw buffer to internal RAM to "fix" anything — it is the
-poison, not the cure. esp-bsp issue #716 (PSRAM chunking) sounds like it
-applies here but does NOT — a plausible upstream root cause is not proof
-it's your root cause.
+- The BSP registers this QSPI panel via `lvgl_port_add_disp_rgb` — RGB
+  semantics call `lv_disp_flush_ready` immediately after queueing, so LVGL
+  reused the draw buffer while the SPI DMA still read it. THAT was the
+  stripe/tearing corruption with an internal buffer.
+- A PSRAM buffer only looked clean because spi_master bounce-copies
+  non-DMA-capable buffers through a contiguous internal-DMA malloc per
+  flush — accidental copy semantics. That malloc failing under wifi heap
+  fragmentation (`ESP_ERR_NO_MEM`, needs strip-size contiguous DMA heap)
+  was the ENTIRE "spi transmit (queue) color failed" storm, with
+  run-to-run variance = heap-fragmentation lottery.
+- `panel_sh8601_draw_bitmap` swallows the color-transfer status (returns
+  ESP_OK unconditionally), which is why no layer ever saw the errors.
+
+Current architecture (vendored BSP `esp32_s3_touch_amoled_2_06.c`):
+`bsp_flush_with_retry` drives CASET/RASET/RAMWR directly on the panel io
+(real errors visible), retries ×4, and releases LVGL by hand on total
+failure; a registered trans-done callback + `bsp_flush_wait_bounded`
+(spin ≤5ms, yield after, give up at 200ms) give LVGL true wait semantics
+so the draw buffer is never reused mid-DMA. With that, the draw buffer is
+**internal DMA** (`buff_dma = true` in `device/main/main.c` — the BSP now
+honors caller flags) — no bounce alloc, and bench `flushfail=0(+0)`,
+which is the new baseline: ANY nonzero flushfail is a real regression.
 
 ### 2. Never configure or drive GPIO13.
 A community note (Waveshare issue #6) calls it an "AMOLED boost enable."
@@ -54,11 +69,20 @@ tuning byte order, clock, strip height, etc. — those were all noise.
 - `.known-good/clean-full-featured.bin` — flash to restore a known-clean,
   full-featured build:
   `python3 -m esptool --chip esp32s3 -p /dev/cu.usbmodem2101 -b 460800 write_flash 0x20000 .known-good/clean-full-featured.bin`
+- **Render-characterization harness** (`device/main/render_test_main.c`):
+  `FROLIC_RENDER_TEST=1 idf.py -B build_rt build` boots a raw esp_lcd
+  battery (no LVGL — strip sweeps, bursts, determinism repeats, PSRAM vs
+  internal, wifi load); `=2` boots the LVGL stack with the app's config
+  under crossed loads (plain/NVS/wifi/fade). Serial-readable pass/fail per
+  draw. This is how the flush saga was solved — extend it before theorizing
+  about any new render fault.
 - Remote debugging over USB serial (`tools/watch_remote.py`, and console
   commands in `device/main/device_debug_console.c`): `snap` (dump the
   logical framebuffer), `tap X Y`, `wake`/`sleep`, `portal`/`portalx`,
-  `time`, `fill`. **Caveat: snapshots show the LOGICAL frame LVGL composed,
-  NOT panel-level corruption.** A clean snapshot with a striped panel means
+  `time`, `fill`, and raw panel draws bypassing LVGL (`rawfill [mode]`,
+  `rawgrid [h] [ms]` — labeled strip patterns, `rawx` restores the app).
+  **Caveat: snapshots show the LOGICAL frame LVGL composed, NOT panel-level
+  corruption.** A clean snapshot with a striped panel means
   the fault is below LVGL (flush path / buffer placement / panel), so
   snapshots can't see #1-class bugs — only the human's eyes (or a camera)
   can. Don't conclude "clean" from a snapshot alone.
@@ -131,11 +155,11 @@ battery. Facts that must not be relearned:
    latency); BOOT wakes instantly via `gpio_wakeup_enable(GPIO0, LOW)` —
    re-armed at every dark-loop entry because any later `gpio_config` on
    GPIO0 silently resets the wake trigger type.
-6. **Flushfail context:** sporadic `spi transmit (queue) color failed`
-   drops during rendering (boot paint, ACTIVE animation, DOZING-entry
-   snap) are PRE-EXISTING with large run-to-run variance (0-100 in the
-   first minute across identical builds). Don't attribute them to sleep
-   work without an A/B with several runs per side.
+6. **Flushfail context:** historically sporadic (0-100+/boot, variance =
+   DMA-heap fragmentation lottery — see landmine #1 for the mechanism and
+   its resolution). Since the fault-tolerant flush + internal draw buffer,
+   the baseline is ZERO: any `flushfail`, `flush retry`, or `flush FAILED`
+   line is a real regression, not noise.
 7. **The 2026-08-11 "stuck SYNCING 13+ min, watchdog silent" field failure
    was NOT the sleep loop** (8/8 bench power-cycles of the same build were
    clean). Decomposition: a boot-paint flush storm burned a corrupt frame;

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_commands.h"
 #include "esp_lcd_panel_io_additions.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -14,6 +15,8 @@
 
 #include "esp_lcd_sh8601.h"
 #include "esp_lcd_touch_ft5x06.h"
+#include "esp_timer.h"
+#include "src/display/lv_display_private.h"
 
 #include "esp_codec_dev_defaults.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
@@ -420,6 +423,132 @@ static void bsp_lvgl_rounder_cb(lv_disp_drv_t *disp_drv, lv_area_t *area)
     area->y2 = ((y2 >> 1) << 1) + 1;
 }
 #endif
+/* Vendored change: expose the panel for raw draw-path diagnostics (the
+   debug console's raw* commands draw via esp_lcd directly, bypassing LVGL,
+   to isolate flush faults per screen strip). */
+esp_lcd_panel_handle_t bsp_display_get_panel_handle(void)
+{
+    return panel_handle;
+}
+
+/*
+ * Vendored change: fault-tolerant flush, replacing esp_lvgl_port's.
+ *
+ * The stock lvgl_port flush ignores esp_lcd_panel_draw_bitmap errors. The
+ * characterization firmware (FROLIC_RENDER_TEST) proved the raw draw path
+ * flawless (1490/1490 under every load), so failures are transient stack
+ * conditions — but the stock handling turns them into the two chronic app
+ * symptoms: a mid-sequence failure fires a premature partial completion,
+ * leaving a stale/garbled strip on glass that nothing repaints; a
+ * first-chunk failure queues nothing, so lv_disp_flush_ready never fires
+ * and LVGL's wait_for_flushing spins CPU1 forever (decoded wedge backtrace:
+ * lv_refr.c wait_for_flushing <- refr_configured_layer <- lvgl_port_task).
+ *
+ * Retry rewrites the WHOLE area (also healing partial-chunk damage); total
+ * failure releases the pipeline by hand. The wait callback keeps stock spin
+ * latency for healthy flushes but yields after 5ms and gives up at 200ms —
+ * LVGL force-clears `flushing` when the callback returns, so a timeout can
+ * never strand the pipeline.
+ */
+/* Direct CASET/RASET/RAMWR with sh8601's QSPI framing. The driver's own
+   draw_bitmap DISCARDS the color-transfer status (returns ESP_OK
+   unconditionally), so failures cannot be seen through it — this path
+   returns the real error. Gap must match esp_lcd_panel_set_gap below. */
+#define BSP_LCD_X_GAP 0x16
+
+static esp_err_t bsp_draw_area(const lv_area_t *area, uint8_t *color_map)
+{
+    int x_start = area->x1 + BSP_LCD_X_GAP;
+    int x_end = area->x2 + BSP_LCD_X_GAP; /* inclusive */
+    int y_start = area->y1;
+    int y_end = area->y2;
+    esp_err_t err = esp_lcd_panel_io_tx_param(
+        io_handle, (0x02 << 24) | (LCD_CMD_CASET << 8),
+        (uint8_t[]){x_start >> 8, x_start & 0xFF, x_end >> 8, x_end & 0xFF}, 4);
+    if (err != ESP_OK) {
+        printf("flush stage CASET: %s\n", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_lcd_panel_io_tx_param(
+        io_handle, (0x02 << 24) | (LCD_CMD_RASET << 8),
+        (uint8_t[]){y_start >> 8, y_start & 0xFF, y_end >> 8, y_end & 0xFF}, 4);
+    if (err != ESP_OK) {
+        printf("flush stage RASET: %s\n", esp_err_to_name(err));
+        return err;
+    }
+    size_t len = (size_t)lv_area_get_size(area) * 2;
+    err = esp_lcd_panel_io_tx_color(io_handle, (0x32 << 24) | (LCD_CMD_RAMWR << 8),
+                                    color_map, len);
+    if (err != ESP_OK) {
+        printf("flush stage COLOR: %s buf=%p dma_free=%u dma_largest=%u\n",
+               esp_err_to_name(err), (void *)color_map,
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+               (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
+    }
+    return err;
+}
+
+static void bsp_flush_with_retry(lv_display_t *display, const lv_area_t *area,
+                                 uint8_t *color_map)
+{
+    lv_draw_sw_rgb565_swap(color_map, lv_area_get_size(area));
+    for (int attempt = 0; attempt < 4; attempt++) {
+        esp_err_t err = bsp_draw_area(area, color_map);
+        if (err == ESP_OK) return; /* trans-done ISR signals flush_ready */
+        printf("flush retry %d (%d,%d)-(%d,%d): %s\n", attempt + 1,
+               (int)area->x1, (int)area->y1, (int)area->x2, (int)area->y2,
+               esp_err_to_name(err));
+        vTaskDelay(pdMS_TO_TICKS(2)); /* let the SPI queue drain */
+    }
+    printf("flush FAILED (%d,%d)-(%d,%d): releasing pipeline\n",
+           (int)area->x1, (int)area->y1, (int)area->x2, (int)area->y2);
+    lv_display_flush_ready(display);
+}
+
+static void bsp_flush_wait_bounded(lv_display_t *display)
+{
+    int64_t start = esp_timer_get_time();
+    while (display->flushing) {
+        int64_t waited_us = esp_timer_get_time() - start;
+        if (waited_us > 200000) {
+            printf("flush wait timeout: releasing pipeline\n");
+            break; /* LVGL clears `flushing` when this returns */
+        }
+        /* Healthy flushes finish in a few ms: spin like stock. Beyond that
+           something is wrong — yield so idle/TWDT stay fed. */
+        if (waited_us > 5000) vTaskDelay(1);
+    }
+}
+
+static bool bsp_flush_done(esp_lcd_panel_io_handle_t io,
+                           esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
+{
+    (void)io;
+    (void)edata;
+    lv_display_flush_ready((lv_display_t *)user_ctx);
+    return false;
+}
+
+/* No rotation support: this product never rotates the display, and the
+   stock rotation path lives in the flush this replaces.
+
+   The trans-done registration is load-bearing: the BSP creates the display
+   via lvgl_port_add_disp_rgb, whose RGB semantics call flush_ready
+   immediately after queueing — LVGL then reuses the draw buffer while the
+   SPI DMA still reads it (the historic sporadic tearing) and outruns the
+   queue under load (the flush-failure storms). Waiting for the real
+   completion is the fix, and requires this callback, which the RGB path
+   never registers for a SPI io. */
+static void bsp_display_install_fault_tolerant_flush(lv_display_t *display)
+{
+    const esp_lcd_panel_io_callbacks_t callbacks = {
+        .on_color_trans_done = bsp_flush_done,
+    };
+    ESP_ERROR_CHECK(esp_lcd_panel_io_register_event_callbacks(io_handle, &callbacks, display));
+    lv_display_set_flush_cb(display, bsp_flush_with_retry);
+    lv_display_set_flush_wait_cb(display, bsp_flush_wait_bounded);
+}
+
 esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_handle_t *ret_panel, esp_lcd_panel_io_handle_t *ret_io)
 {
     esp_err_t ret = ESP_OK;
@@ -499,7 +628,10 @@ esp_err_t bsp_touch_new(const bsp_touch_config_t *config, esp_lcd_touch_handle_t
     return esp_lcd_touch_new_i2c_ft5x06(tp_io_handle, &tp_cfg, ret_touch);
 }
 
-static lv_display_t *bsp_display_lcd_init()
+/* Vendored change: honor the caller's buffer configuration — the stock
+   function ignored bsp_display_cfg_t entirely, hardcoding the buffer
+   placement, which made every caller's buff_dma/buff_spiram decorative. */
+static lv_display_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
 {
     const bsp_display_config_t disp_config = {
         .max_transfer_sz = BSP_LCD_H_RES * BSP_LCD_V_RES * BSP_LCD_BITS_PER_PIXEL / 8,
@@ -507,17 +639,20 @@ static lv_display_t *bsp_display_lcd_init()
 
     BSP_ERROR_CHECK_RETURN_NULL(bsp_display_new(&disp_config, &panel_handle, &io_handle));
 
-    int buffer_size = 0;
+    int buffer_size = cfg->buffer_size;
+    if (buffer_size == 0) {
 #if CONFIG_BSP_DISPLAY_LVGL_AVOID_TEAR
-    buffer_size = BSP_LCD_H_RES * BSP_LCD_V_RES;
+        buffer_size = BSP_LCD_H_RES * BSP_LCD_V_RES;
 #else
-    buffer_size = BSP_LCD_H_RES * LVGL_BUFFER_HEIGHT;
+        buffer_size = BSP_LCD_H_RES * LVGL_BUFFER_HEIGHT;
 #endif /* CONFIG_BSP_DISPLAY_LVGL_AVOID_TEAR */
+    }
 
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = io_handle,
         .panel_handle = panel_handle,
         .buffer_size = buffer_size,
+        .double_buffer = cfg->double_buffer,
 
         .monochrome = false,
         .hres = BSP_LCD_H_RES,
@@ -533,12 +668,16 @@ static lv_display_t *bsp_display_lcd_init()
         },
         .flags = {
             .sw_rotate = true,
-            /* Draw buffer in PSRAM. Empirically (Kevin's confirmed-clean
-               demo vs every striped build), the internal-DMA draw buffer is
-               what stripes this CO5300 panel; PSRAM is clean. This reverts
-               the mistaken overnight switch to internal. */
-            .buff_dma = false,
-            .buff_spiram = true,
+            /* Buffer placement is the caller's call. History: PSRAM looked
+               "clean" and internal-DMA looked "striped" ONLY because the
+               stock flush never waited for DMA completion — the PSRAM path
+               got accidental copy-semantics from spi_master's internal
+               bounce buffer, whose contiguous-DMA alloc is also the
+               ESP_ERR_NO_MEM flush-storm source. With the fault-tolerant
+               flush above (real trans-done wait), an internal buffer is
+               both safe and alloc-free on the flush path. */
+            .buff_dma = cfg->flags.buff_dma,
+            .buff_spiram = cfg->flags.buff_spiram,
 #if CONFIG_BSP_DISPLAY_LVGL_FULL_REFRESH
             .full_refresh = 1,
 #elif CONFIG_BSP_DISPLAY_LVGL_DIRECT_MODE
@@ -574,6 +713,7 @@ static lv_display_t *bsp_display_lcd_init()
 
 #if LVGL_VERSION_MAJOR >= 9
     lv_display_add_event_cb(disp, rounder_event_cb, LV_EVENT_INVALIDATE_AREA, NULL);
+    bsp_display_install_fault_tolerant_flush(disp);
 #else
     lv_disp_t *disp_v8 = (lv_disp_t *)disp;
     if (disp_v8 && disp_v8->driver) {
@@ -623,7 +763,7 @@ lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
     assert(cfg != NULL);
     BSP_ERROR_CHECK_RETURN_NULL(lvgl_port_init(&cfg->lvgl_port_cfg));
 
-    BSP_NULL_CHECK(disp = bsp_display_lcd_init(), NULL);
+    BSP_NULL_CHECK(disp = bsp_display_lcd_init(cfg), NULL);
 
     BSP_NULL_CHECK(disp_indev = bsp_display_indev_init(disp), NULL);
 

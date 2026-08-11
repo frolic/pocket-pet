@@ -1,0 +1,1 @@
+info: Trying to set symbol SPIRAM_SPEED_40M to n, but it is currently selected by choice SPIRAM_SPEED. For setting it to n, set another choice symbol to y instead.

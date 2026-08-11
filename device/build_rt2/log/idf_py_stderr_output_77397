@@ -1,0 +1,24 @@
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/render_test_main.c:387:13: warning: 'final_pattern' defined but not used [-Wunused-function]
+  387 | static void final_pattern(void)
+      |             ^~~~~~~~~~~~~
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/render_test_main.c:254:13: warning: 'phase_g_sustained' defined but not used [-Wunused-function]
+  254 | static void phase_g_sustained(void)
+      |             ^~~~~~~~~~~~~~~~~
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/render_test_main.c:232:13: warning: 'phase_f_radio' defined but not used [-Wunused-function]
+  232 | static void phase_f_radio(void)
+      |             ^~~~~~~~~~~~~
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/render_test_main.c:188:13: warning: 'phase_e_memory' defined but not used [-Wunused-function]
+  188 | static void phase_e_memory(void)
+      |             ^~~~~~~~~~~~~~
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/render_test_main.c:174:13: warning: 'phase_d_stress' defined but not used [-Wunused-function]
+  174 | static void phase_d_stress(void)
+      |             ^~~~~~~~~~~~~~
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/render_test_main.c:153:13: warning: 'phase_c_determinism' defined but not used [-Wunused-function]
+  153 | static void phase_c_determinism(void)
+      |             ^~~~~~~~~~~~~~~~~~~
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/render_test_main.c:139:13: warning: 'phase_b_sizes' defined but not used [-Wunused-function]
+  139 | static void phase_b_sizes(void)
+      |             ^~~~~~~~~~~~~
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/render_test_main.c:126:13: warning: 'phase_a_baseline' defined but not used [-Wunused-function]
+  126 | static void phase_a_baseline(void)
+      |             ^~~~~~~~~~~~~~~~

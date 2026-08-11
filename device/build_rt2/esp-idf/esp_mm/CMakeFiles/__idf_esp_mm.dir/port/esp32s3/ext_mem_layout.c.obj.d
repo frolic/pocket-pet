@@ -1,0 +1,37 @@
+esp-idf/esp_mm/CMakeFiles/__idf_esp_mm.dir/port/esp32s3/ext_mem_layout.c.obj: \
+ /Users/kevin/esp/esp-idf/components/esp_mm/port/esp32s3/ext_mem_layout.c \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/stdlib.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/machine/ieeefp.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/_ansi.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/newlib.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/_newlib_version.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/config.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/features.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/14.2.0/include/stddef.h \
+ /Users/kevin/esp/esp-idf/components/newlib/platform_include/sys/reent.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/reent.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/_ansi.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/_types.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/machine/_types.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/machine/_default_types.h \
+ /Users/kevin/esp/esp-idf/components/newlib/platform_include/sys/lock.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/lock.h \
+ /Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/build_rt2/config/sdkconfig.h \
+ /Users/kevin/esp/esp-idf/components/newlib/platform_include/assert.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/14.2.0/include/stdint.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/stdint.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/_intsup.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/_stdint.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/assert.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/cdefs.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/machine/stdlib.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/alloca.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/_locale.h \
+ /Users/kevin/esp/esp-idf/components/soc/esp32s3/include/soc/ext_mem_defs.h \
+ /Users/kevin/esp/esp-idf/components/esp_common/include/esp_bit_defs.h \
+ /Users/kevin/esp/esp-idf/components/esp_mm/include/../ext_mem_layout.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/14.2.0/include/stdbool.h \
+ /Users/kevin/esp/esp-idf/components/soc/esp32s3/include/soc/soc_caps.h \
+ /Users/kevin/esp/esp-idf/components/soc/esp32s3/include/soc/mpu_caps.h \
+ /Users/kevin/esp/esp-idf/components/hal/include/hal/cache_types.h \
+ /Users/kevin/esp/esp-idf/components/hal/include/hal/mmu_types.h

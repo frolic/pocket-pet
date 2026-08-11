@@ -10,9 +10,11 @@
 #include "esp_heap_caps.h"
 #include "mbedtls/base64.h"
 #include "lvgl.h"
+#include "esp_lcd_panel_ops.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
 #include "device_debug_console.h"
 #include "device_debug.h"
+#include "device_flush_gate.h"
 #include "display_sleep.h"
 #include "device_wifi.h"
 #include "esp_http_client.h"
@@ -132,6 +134,113 @@ static void run_snap(void)
     print_base64("SNAPTOP", top_buf.data, top_buf.data_size);
 }
 
+/*
+ * Raw panel draw diagnostics: draw via esp_lcd directly, bypassing LVGL,
+ * so panel-level faults can be isolated per screen strip with the human
+ * reading the glass against the per-strip serial log.
+ *   rawfill [M]      one full-screen draw_bitmap; M: 0 black, 1 white, 2 checker
+ *   rawgrid [H] [MS] sweep in H-row strips, MS ms pause between (0 = burst);
+ *                    each strip: checkerboard + a marker bar whose gap steps
+ *                    right with the strip index (a staircase) — a dropped
+ *                    strip is a missing stair, a displaced strip is a stair
+ *                    out of line
+ *   rawx             reopen the flush gate (restore the app's rendering)
+ * Patterns are pure black/white: immune to the RGB565 byte swap the normal
+ * flush path applies, so raw draws need no swap.
+ */
+
+#define RAW_MAX_STRIP 250 /* two ping-pong halves of a full-frame buffer */
+
+static uint16_t *raw_buf;
+
+static bool raw_ready(void)
+{
+    if (device_wifi_radio_active()) {
+        /* Raw draws on the panel bus during radio would recreate the exact
+           corruption the flush gate exists to prevent. */
+        printf("raw: refused, radio active\n");
+        return false;
+    }
+    if (raw_buf == NULL) {
+        raw_buf = heap_caps_malloc(SNAP_WIDTH * SNAP_HEIGHT * 2, MALLOC_CAP_SPIRAM);
+        if (raw_buf == NULL) {
+            printf("raw: psram alloc failed\n");
+            return false;
+        }
+    }
+    /* Seal LVGL out of the panel and hold the display awake: without the
+       hold, the 10s inactivity fade blanks the glass mid-inspection. */
+    device_flush_gate_close();
+    bsp_display_lock(0);
+    display_sleep_set_hold(true);
+    lv_display_trigger_activity(NULL);
+    bsp_display_unlock();
+    bsp_display_brightness_set(80);
+    return true;
+}
+
+static void raw_fill(int mode)
+{
+    if (!raw_ready()) return;
+    for (int y = 0; y < SNAP_HEIGHT; y++) {
+        for (int x = 0; x < SNAP_WIDTH; x++) {
+            uint16_t pixel;
+            if (mode == 0) pixel = 0x0000;
+            else if (mode == 1) pixel = 0xFFFF;
+            else pixel = (((x >> 4) ^ (y >> 4)) & 1) ? 0xFFFF : 0x0000;
+            raw_buf[y * SNAP_WIDTH + x] = pixel;
+        }
+    }
+    esp_err_t err = esp_lcd_panel_draw_bitmap(bsp_display_get_panel_handle(),
+                                              0, 0, SNAP_WIDTH, SNAP_HEIGHT,
+                                              raw_buf);
+    printf("rawfill mode=%d err=%s\n", mode, esp_err_to_name(err));
+}
+
+static void raw_grid(int strip_height, int pace_ms)
+{
+    if (strip_height < 2) strip_height = 2;
+    if (strip_height > RAW_MAX_STRIP) strip_height = RAW_MAX_STRIP;
+    strip_height &= ~1; /* panel wants even row alignment */
+    if (!raw_ready()) return;
+
+    int failures = 0;
+    int index = 0;
+    for (int y = 0; y < SNAP_HEIGHT; y += strip_height, index++) {
+        int height = strip_height;
+        if (y + height > SNAP_HEIGHT) height = SNAP_HEIGHT - y;
+        /* Ping-pong halves: the previous strip may still be in DMA flight
+           while this one is being filled. */
+        uint16_t *strip = raw_buf + (index % 2) * SNAP_WIDTH * RAW_MAX_STRIP;
+        for (int row = 0; row < height; row++) {
+            for (int x = 0; x < SNAP_WIDTH; x++) {
+                bool checker = (((x >> 4) ^ ((y + row) >> 4)) & 1) != 0;
+                strip[row * SNAP_WIDTH + x] = checker ? 0xFFFF : 0x0000;
+            }
+        }
+        /* Marker bar: solid white, with a black gap stepping right per strip. */
+        int gap_x = 8 + (index % 12) * 32;
+        for (int row = height / 2 - 4; row < height / 2 + 4; row++) {
+            if (row < 0 || row >= height) continue;
+            for (int x = 0; x < SNAP_WIDTH; x++) {
+                bool in_gap = x >= gap_x && x < gap_x + 24;
+                strip[row * SNAP_WIDTH + x] = in_gap ? 0x0000 : 0xFFFF;
+            }
+        }
+        esp_err_t err = esp_lcd_panel_draw_bitmap(bsp_display_get_panel_handle(),
+                                                  0, y, SNAP_WIDTH, y + height,
+                                                  strip);
+        if (err != ESP_OK) {
+            failures++;
+            printf("rawgrid strip %d y=%d..%d err=%s\n",
+                   index, y, y + height, esp_err_to_name(err));
+        }
+        if (pace_ms > 0) vTaskDelay(pdMS_TO_TICKS(pace_ms));
+    }
+    printf("rawgrid done: strips=%d failures=%d height=%d pace=%dms\n",
+           index, failures, strip_height, pace_ms);
+}
+
 static void console_task(void *arg)
 {
     (void)arg;
@@ -203,6 +312,21 @@ static void console_task(void *arg)
                 settimeofday(&now, NULL);
                 printf("time: set\n");
             }
+        } else if (strncmp(line, "rawfill", 7) == 0) {
+            int mode = 2;
+            sscanf(line + 7, "%d", &mode);
+            raw_fill(mode);
+        } else if (strncmp(line, "rawgrid", 7) == 0) {
+            int height = 50;
+            int pace = 0;
+            sscanf(line + 7, "%d %d", &height, &pace);
+            raw_grid(height, pace);
+        } else if (strcmp(line, "rawx") == 0) {
+            bsp_display_lock(0);
+            display_sleep_set_hold(false);
+            bsp_display_unlock();
+            device_flush_gate_open();
+            printf("rawx: app rendering restored\n");
         } else if (strncmp(line, "tap ", 4) == 0) {
             int x, y;
             if (sscanf(line + 4, "%d %d", &x, &y) == 2) {

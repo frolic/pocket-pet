@@ -16,6 +16,7 @@
 #include "device_state.h"
 #include "device_debug_console.h"
 #include "display_sleep.h"
+#include "render_test_main.h"
 #include "frolic_app.h"
 #include "pet.h"
 #include "watchface.h"
@@ -39,6 +40,11 @@ static void display_dim(uint8_t brightness_percent)
 
 void app_main(void)
 {
+#ifdef FROLIC_RENDER_TEST
+    /* Diagnostic build: characterize the raw draw path, no app, no LVGL. */
+    render_test_main();
+    return;
+#endif
     device_debug_start();
     esp_err_t nvs_result = nvs_flash_init();
     if (nvs_result == ESP_ERR_NVS_NO_FREE_PAGES || nvs_result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -46,15 +52,24 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
 
-    /* LVGL on core 1, away from the wifi stack on core 0 — a starved flush
-       pipeline jams the panel SPI queue (dropped flushes, then watchdog). */
+    /* LVGL on core 1, away from the wifi stack on core 0.
+
+       Internal-DMA draw buffer, and this is now safe ON PURPOSE: the
+       vendored BSP flush waits for real SPI completion (trans-done), so the
+       buffer is never reused mid-DMA — which was the actual cause of the
+       historic "internal buffer stripes the panel" rule. PSRAM only ever
+       looked clean because spi_master bounce-copied it through a contiguous
+       internal DMA alloc per flush, and THAT alloc failing under wifi heap
+       fragmentation (ESP_ERR_NO_MEM) was the entire flush-failure storm.
+       Characterized end-to-end by the FROLIC_RENDER_TEST harness:
+       PSRAM buffer under wifi = 100% flush failures; internal = zero. */
     bsp_display_cfg_t display_config = {
         .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
         .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,
         .double_buffer = BSP_LCD_DRAW_BUFF_DOUBLE,
         .flags = {
-            .buff_dma = false,
-            .buff_spiram = true,
+            .buff_dma = true,
+            .buff_spiram = false,
         }};
     display_config.lvgl_port_cfg.task_affinity = 1;
     /* GPIO13 must be left at its power-on default and never configured: the

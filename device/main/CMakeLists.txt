@@ -10,6 +10,7 @@ endif()
 idf_component_register(
     SRCS
         "main.c"
+        "render_test_main.c"
         "device_wifi.c"
         "device_ota.c"
         "device_power.c"
@@ -35,6 +36,11 @@ idf_component_register(
     INCLUDE_DIRS "." "../../app"
     REQUIRES esp32_s3_touch_amoled_2_06 driver esp_timer mbedtls esp_wifi esp_netif esp_event esp_http_server esp_http_client esp_https_ota app_update nvs_flash lwip
 )
+
+if(DEFINED ENV{FROLIC_RENDER_TEST})
+    # 1 = raw esp_lcd battery, 2 = LVGL-stack battery with instrumented flush
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_RENDER_TEST=$ENV{FROLIC_RENDER_TEST})
+endif()
 
 if(DEFINED ENV{FROLIC_DISABLE_WIFI})
     target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_DISABLE_WIFI=1)

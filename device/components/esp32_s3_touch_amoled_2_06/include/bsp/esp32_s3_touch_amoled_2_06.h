@@ -266,6 +266,10 @@ typedef struct {
  *
  * @return Pointer to LVGL display or NULL when error occurred
  */
+/* Vendored change: raw panel access for draw-path diagnostics (debug
+   console raw* commands). */
+esp_lcd_panel_handle_t bsp_display_get_panel_handle(void);
+
 lv_display_t *bsp_display_start(void);
 
 /**
