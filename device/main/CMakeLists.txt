@@ -1,3 +1,12 @@
+execute_process(
+    COMMAND python3 ${CMAKE_CURRENT_LIST_DIR}/../../tools/gen_assets.py
+        ${CMAKE_CURRENT_LIST_DIR}/../../app/sprites
+        ${CMAKE_CURRENT_LIST_DIR}/../../assets/raichu
+    RESULT_VARIABLE gen_result)
+if(NOT gen_result EQUAL 0)
+    message(FATAL_ERROR "asset generation failed")
+endif()
+
 idf_component_register(
     SRCS
         "main.c"
@@ -18,7 +27,7 @@ idf_component_register(
         "../../app/pixel_scale.c"
         "../../app/display_sleep.c"
         "../../app/pixel_text.c"
-        "../../app/sprites/raichu_sprites.c"
+        "../../app/sprites/pet_sprites.c"
         "../../app/sprites/field_bg.c"
         "../../app/sprites/hud_box.c"
         "../../app/sprites/pixel_font.c"

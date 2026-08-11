@@ -28,7 +28,7 @@
 #define WIFI_TRACE(...)
 #endif
 
-#define SETUP_SSID "pocket-pikachu"
+#define SETUP_SSID "pocket-pet"
 #define PORTAL_IP "192.168.4.1"
 #define BOOT_BUTTON GPIO_NUM_0
 
@@ -448,7 +448,7 @@ static const char SAVED_PAGE[] =
     "<title>saved</title></head><body style='font-family:sans-serif;background:#88c878;"
     "text-align:center;padding:80px 24px 0;'><h1>&#9889; Got it!</h1>"
     "<p>Raichu is rebooting to try your wifi.</p>"
-    "<p>If it can't join, the <b>pocket-pikachu</b> network comes back in about half a "
+    "<p>If it can't join, the <b>pocket-pet</b> network comes back in about half a "
     "minute — rejoin it to see what went wrong and retry.</p></body></html>";
 
 static void url_decode(char *text)

@@ -6,3 +6,10 @@ device/sdkconfig
 device/managed_components/
 device/dependencies.lock
 device/version.txt
+
+# Generated asset arrays (regenerated at build by tools/gen_assets.py;
+# only the source PNGs under assets/ and the generators are tracked)
+app/sprites/*.c
+app/sprites/*.h
+__pycache__/
+*.pyc

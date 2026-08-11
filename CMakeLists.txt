@@ -1,6 +1,19 @@
 cmake_minimum_required(VERSION 3.20)
 project(frolic C)
 
+# --- Generated assets (sprites/HUD/font). Only sources live in git; the C
+# arrays regenerate here at configure time. Swap POKEMON to change character. ---
+set(POKEMON "raichu" CACHE STRING "Pet sprite set under assets/")
+execute_process(
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${CMAKE_SOURCE_DIR}/tools/gen_assets.py
+        ${CMAKE_SOURCE_DIR}/app/sprites
+        ${CMAKE_SOURCE_DIR}/assets/${POKEMON}
+    RESULT_VARIABLE gen_result)
+if(NOT gen_result EQUAL 0)
+    message(FATAL_ERROR "asset generation failed")
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
@@ -37,7 +50,7 @@ add_executable(frolic_sim
     app/pixel_text.c
     app/sprites/pixel_font.c
     app/sprites/hud_box.c
-    app/sprites/raichu_sprites.c
+    app/sprites/pet_sprites.c
     app/sprites/field_bg.c
 )
 target_include_directories(frolic_sim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

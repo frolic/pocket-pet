@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include "pet.h"
 #include "pixel_scale.h"
-#include "sprites/raichu_sprites.h"
+#include "sprites/pet_sprites.h"
 
 /* How long after the last step the pet keeps walking before settling down. */
 #define WALK_LINGER_MS 2500
@@ -132,7 +132,7 @@ static void show_frame(void)
 {
     int slot = frame_scratch_next;
     frame_scratch_next ^= 1;
-    pixel_scale_into(current_set->frames[frame_index], RAICHU_SPRITE_SCALE,
+    pixel_scale_into(current_set->frames[frame_index], PET_SPRITE_SCALE,
                      &frame_scratch[slot], frame_buffer[slot]);
     lv_image_set_src(sprite, &frame_scratch[slot]);
     lv_timer_set_period(frame_timer, current_set->durations_ms[frame_index]);
@@ -555,34 +555,34 @@ static void measure_frames(int32_t *width, int32_t *height)
 
 lv_obj_t *pet_create(lv_obj_t *parent)
 {
-    idle_set = (anim_set_t){raichu_idle_frames, raichu_idle_durations_ms, raichu_idle_frame_count};
-    sit_set = (anim_set_t){raichu_sit_frames, raichu_sit_durations_ms, raichu_sit_frame_count};
-    nod_set = (anim_set_t){raichu_nod_frames, raichu_nod_durations_ms, raichu_nod_frame_count};
-    pose_set = (anim_set_t){raichu_pose_frames, raichu_pose_durations_ms, raichu_pose_frame_count};
-    shock_set = (anim_set_t){raichu_shock_frames, raichu_shock_durations_ms, raichu_shock_frame_count};
-    hop_set = (anim_set_t){raichu_hop_frames, raichu_hop_durations_ms, raichu_hop_frame_count};
-    breath_set = (anim_set_t){raichu_breath_frames, raichu_breath_durations_ms, raichu_breath_frame_count};
-    sleep_set = (anim_set_t){raichu_sleep_frames, raichu_sleep_durations_ms, raichu_sleep_frame_count};
-    wake_set = (anim_set_t){raichu_wake_frames, raichu_wake_durations_ms, raichu_wake_frame_count};
-    yawn_frames[0] = raichu_idle_frames[0];
-    yawn_frames[1] = raichu_yawn_frames[0];
-    yawn_frames[2] = raichu_idle_frames[0];
+    idle_set = (anim_set_t){pet_idle_frames, pet_idle_durations_ms, pet_idle_frame_count};
+    sit_set = (anim_set_t){pet_sit_frames, pet_sit_durations_ms, pet_sit_frame_count};
+    nod_set = (anim_set_t){pet_nod_frames, pet_nod_durations_ms, pet_nod_frame_count};
+    pose_set = (anim_set_t){pet_pose_frames, pet_pose_durations_ms, pet_pose_frame_count};
+    shock_set = (anim_set_t){pet_shock_frames, pet_shock_durations_ms, pet_shock_frame_count};
+    hop_set = (anim_set_t){pet_hop_frames, pet_hop_durations_ms, pet_hop_frame_count};
+    breath_set = (anim_set_t){pet_breath_frames, pet_breath_durations_ms, pet_breath_frame_count};
+    sleep_set = (anim_set_t){pet_sleep_frames, pet_sleep_durations_ms, pet_sleep_frame_count};
+    wake_set = (anim_set_t){pet_wake_frames, pet_wake_durations_ms, pet_wake_frame_count};
+    yawn_frames[0] = pet_idle_frames[0];
+    yawn_frames[1] = pet_yawn_frames[0];
+    yawn_frames[2] = pet_idle_frames[0];
     yawn_set = (anim_set_t){yawn_frames, yawn_durations_ms, 3};
-    walk_sets[0] = (anim_set_t){raichu_walk_s_frames, raichu_walk_s_durations_ms, raichu_walk_s_frame_count};
-    walk_sets[1] = (anim_set_t){raichu_walk_se_frames, raichu_walk_se_durations_ms, raichu_walk_se_frame_count};
-    walk_sets[2] = (anim_set_t){raichu_walk_e_frames, raichu_walk_e_durations_ms, raichu_walk_e_frame_count};
-    walk_sets[3] = (anim_set_t){raichu_walk_ne_frames, raichu_walk_ne_durations_ms, raichu_walk_ne_frame_count};
-    walk_sets[4] = (anim_set_t){raichu_walk_n_frames, raichu_walk_n_durations_ms, raichu_walk_n_frame_count};
-    walk_sets[5] = (anim_set_t){raichu_walk_nw_frames, raichu_walk_nw_durations_ms, raichu_walk_nw_frame_count};
-    walk_sets[6] = (anim_set_t){raichu_walk_w_frames, raichu_walk_w_durations_ms, raichu_walk_w_frame_count};
-    walk_sets[7] = (anim_set_t){raichu_walk_sw_frames, raichu_walk_sw_durations_ms, raichu_walk_sw_frame_count};
+    walk_sets[0] = (anim_set_t){pet_walk_s_frames, pet_walk_s_durations_ms, pet_walk_s_frame_count};
+    walk_sets[1] = (anim_set_t){pet_walk_se_frames, pet_walk_se_durations_ms, pet_walk_se_frame_count};
+    walk_sets[2] = (anim_set_t){pet_walk_e_frames, pet_walk_e_durations_ms, pet_walk_e_frame_count};
+    walk_sets[3] = (anim_set_t){pet_walk_ne_frames, pet_walk_ne_durations_ms, pet_walk_ne_frame_count};
+    walk_sets[4] = (anim_set_t){pet_walk_n_frames, pet_walk_n_durations_ms, pet_walk_n_frame_count};
+    walk_sets[5] = (anim_set_t){pet_walk_nw_frames, pet_walk_nw_durations_ms, pet_walk_nw_frame_count};
+    walk_sets[6] = (anim_set_t){pet_walk_w_frames, pet_walk_w_durations_ms, pet_walk_w_frame_count};
+    walk_sets[7] = (anim_set_t){pet_walk_sw_frames, pet_walk_sw_durations_ms, pet_walk_sw_frame_count};
 
     pet_root = lv_obj_create(parent);
     lv_obj_remove_style_all(pet_root);
     int32_t native_width, native_height;
     measure_frames(&native_width, &native_height);
-    int32_t width = native_width * RAICHU_SPRITE_SCALE;
-    int32_t height = native_height * RAICHU_SPRITE_SCALE;
+    int32_t width = native_width * PET_SPRITE_SCALE;
+    int32_t height = native_height * PET_SPRITE_SCALE;
     /* Sized to the largest animation (plus hop headroom) so nothing ever clips,
        anchored by the feet so canvas growth (e.g. Shock's bolts) never moves him. */
     lv_obj_set_size(pet_root, width, height + HOP_HEADROOM);
@@ -591,7 +591,7 @@ lv_obj_t *pet_create(lv_obj_t *parent)
     apply_position();
 
     size_t scratch_size = (size_t)native_width * native_height *
-                          RAICHU_SPRITE_SCALE * RAICHU_SPRITE_SCALE * 4;
+                          PET_SPRITE_SCALE * PET_SPRITE_SCALE * 4;
     frame_buffer[0] = malloc(scratch_size);
     frame_buffer[1] = malloc(scratch_size);
     LV_ASSERT_NULL(frame_buffer[0]);

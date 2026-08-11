@@ -300,7 +300,7 @@ static void build_setup_modal(void)
 
     lv_obj_t *line2 = pixel_text_create(setup_modal_content);
     pixel_text_set_color(line2, lv_color_hex(0x505050));
-    pixel_text_set(line2, "POCKET-PIKACHU");
+    pixel_text_set(line2, "POCKET PET");
     lv_obj_align(line2, LV_ALIGN_TOP_MID, 0, 118);
 
     lv_obj_t *line3 = pixel_text_create(setup_modal_content);
