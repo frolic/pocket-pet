@@ -43,7 +43,10 @@ void device_power_init(void)
     esp_pm_config_t config = {
         .max_freq_mhz = 240,
         .min_freq_mhz = 80,
-        .light_sleep_enable = true,
+        /* No automatic light sleep yet: waking from it needs the touch/PWR
+           GPIOs wired as wake sources and can only be tuned on battery.
+           DFS alone is safe and testable on USB. */
+        .light_sleep_enable = false,
     };
     esp_err_t result = esp_pm_configure(&config);
     if (result != ESP_OK) {
@@ -61,5 +64,5 @@ void device_power_init(void)
     esp_pm_lock_acquire(sleep_lock);
     locks_held = true;
     ready = true;
-    printf("device_power: dfs 80-240MHz, light sleep when dark on battery\n");
+    printf("device_power: DFS 80-240MHz (no light sleep yet)\n");
 }
