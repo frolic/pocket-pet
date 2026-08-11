@@ -435,6 +435,12 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
     ESP_ERROR_CHECK(spi_bus_initialize(BSP_LCD_SPI_NUM, &buscfg, SPI_DMA_CH_AUTO));
 
     esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS, NULL, NULL);
+    /* Internal-RAM DMA feeds QSPI at full rate (PSRAM sources were always
+       throttled by PSRAM reads) and the link drops bits in sustained 40MHz
+       bursts — thin garbage rows on the glass, invisible to every counter.
+       26MHz trades ~2x flush time (still ~30ms/full frame) for integrity. */
+    io_config.pclk_hz = 26 * 1000 * 1000;
+
     /* Vendored change: deeper transaction queue absorbs flush bursts when
        wifi traffic delays the LVGL task (stock depth 10 dropped flushes). */
     io_config.trans_queue_depth = 48;
