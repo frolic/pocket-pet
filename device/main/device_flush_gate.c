@@ -57,6 +57,12 @@ void device_flush_gate_close(void)
     printf("flush_gate: closed\n");
 }
 
+static void heal_cb(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    lv_obj_invalidate(lv_screen_active());
+}
+
 void device_flush_gate_open(void)
 {
     if (!closed) return;
@@ -64,6 +70,16 @@ void device_flush_gate_open(void)
     lv_display_enable_invalidation(lv_display_get_default(), true);
     /* Catch-up: repaint everything that changed while sealed. */
     lv_obj_invalidate(lv_screen_active());
+    /* Heal passes: the catch-up burst overflows the SPI queue (5-30% strip
+       drops per full-frame burst on this board) and static regions never
+       repaint on their own — black chunks would sit on glass indefinitely.
+       Re-invalidate after the queue drains; a strip dropped in the heal
+       pass still shows the previous pass's identical pixels. Harmless if
+       the gate recloses first: invalidation-disabled makes these no-ops. */
+    lv_timer_t *heal_soon = lv_timer_create(heal_cb, 400, NULL);
+    lv_timer_set_repeat_count(heal_soon, 1);
+    lv_timer_t *heal_late = lv_timer_create(heal_cb, 1200, NULL);
+    lv_timer_set_repeat_count(heal_late, 1);
     bsp_display_unlock();
     closed = false;
     printf("flush_gate: open\n");
