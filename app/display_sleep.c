@@ -163,6 +163,10 @@ void display_sleep_wake(void)
 {
     if (!asleep) return;
     asleep = false;
+    /* Clear all bedtime bookkeeping: after light sleep the tick jumps, and
+       stale settling/timers were re-fading the screen the instant it woke. */
+    settling = false;
+    pet_asleep_since_tick = 0;
     lv_anim_delete(blanket, fade_exec);
     lv_obj_add_flag(blanket, LV_OBJ_FLAG_HIDDEN);
     pet_freeze(false);

@@ -43,10 +43,11 @@ void device_power_init(void)
     esp_pm_config_t config = {
         .max_freq_mhz = 240,
         .min_freq_mhz = 80,
-        /* No automatic light sleep yet: waking from it needs the touch/PWR
-           GPIOs wired as wake sources and can only be tuned on battery.
-           DFS alone is safe and testable on USB. */
-        .light_sleep_enable = false,
+        /* Light sleep when idle+dark on battery (the big standby win).
+           Under tickless idle the CPU wakes for the 50/150ms button poll
+           timers, so PWR/BOOT wake within ~150ms; RAM + step counting are
+           retained (light, not deep, sleep). Gated off USB via set_full. */
+        .light_sleep_enable = true,
     };
     esp_err_t result = esp_pm_configure(&config);
     if (result != ESP_OK) {
@@ -64,5 +65,5 @@ void device_power_init(void)
     esp_pm_lock_acquire(sleep_lock);
     locks_held = true;
     ready = true;
-    printf("device_power: DFS 80-240MHz (no light sleep yet)\n");
+    printf("device_power: DFS 80-240MHz + light sleep (dark on battery)\n");
 }
