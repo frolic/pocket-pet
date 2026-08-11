@@ -72,7 +72,9 @@ static void apply_ui(bool in_lvgl_context)
     switch (current) {
     case DEVICE_STATE_SYNC_VISIBLE:
         paused = true;
-        banner = "SYNCING";
+        /* It is specifically the CLOCK being fetched — "syncing" read as
+           game/data sync and confused everyone including its author. */
+        banner = "SETTING CLOCK";
         break;
     case DEVICE_STATE_PORTAL:
         paused = true;

@@ -1,71 +1,60 @@
-# Light-sleep session handoff (2026-08-11 19:45)
+# Light-sleep session handoff (updated 2026-08-12, was 2026-08-11 19:45)
 
-You are a fresh session with ONE mission: **make light sleep work on this
-watch.** Read `CLAUDE.md` first (hardware landmines). This file is the
-state handoff from the prior session.
+Mission: **make light sleep work on this watch.** Read `CLAUDE.md` first
+(hardware landmines — note landmine #1 was rewritten after the flush saga
+was solved; the old "PSRAM draw buffer" rule is dead).
 
 ## Kevin's mandate — the operating rule
 
 **FIX FORWARD. Do not revert to a known-good build when something breaks.**
-The prior session reverted three separate times when light-sleep attempts
-misbehaved; Kevin explicitly and angrily forbade this. When the sleep build
-breaks: debug it, fix it, reflash it. The known-good binaries
-(`.known-good/`) exist only for a true bricked-device emergency, not as a
-retreat. Kevin accepts a glitchy watch during this work — what he does not
-accept is abandoning the problem.
+The known-good binaries (`.known-good/`) exist only for a true
+bricked-device emergency. Kevin accepts a glitchy watch during this work —
+what he does not accept is abandoning the problem.
 
-## Current state
+## State after the 2026-08-11 evening session
 
-- **Device** (`/dev/cu.usbmodem2101`, plugged into USB): currently flashed
-  with `.known-good/clean-full-featured.bin` (the last revert — sorry).
-  First action: reflash the sleep build from source and start debugging.
-- **`main` @ `d0195fc`**: the light-sleep implementation (manual
-  `esp_light_sleep_start` loop in `device/main/device_sleep.c`), authored by
-  a prior agent. Its design notes are in CLAUDE.md ("Light sleep" section).
-  Key architecture: manual sleep loop engaged only in DOZING-on-battery,
-  40ms sleep quanta with accel sampling each wake
-  (`step_source_sample_now`), BOOT (GPIO0) gpio-wakeup for instant wake,
-  PWR polled every 4th wake, `xTaskCatchUpTicks` to credit slept time,
-  flush gate closed around the whole dark loop.
-  `CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND` is OFF (critical — its startup
-  hook floats every pad on first sleep entry and latches the panel).
+- The "open field regression" (stuck SYNCING, silent watchdog, corrupt
+  frozen frame) is fully explained and fixed — see CLAUDE.md landmine #1
+  and the `main` history from `530757e` through the flush-architecture
+  commit. Highlights: watchdog session clock (state flaps can't defer it),
+  LVGL wedge self-heal, VBUS fail-toward-plugged, boot presents as a black
+  boot screen, and above all the fault-tolerant flush + internal DMA draw
+  buffer. Bench baseline is now `flushfail=0(+0)`; ANY flush failure line
+  is a regression.
+- Kevin eyes-confirmed a clean boot (white flash → black SYNCING → complete
+  pet reveal) on the final build.
+- The manual sleep loop (`device_sleep.c`) itself was never the problem —
+  it is unchanged in architecture and still VBUS-gated off while plugged.
+- Diagnostics that now exist: `FROLIC_RENDER_TEST=1|2` characterization
+  firmware, `rawfill`/`rawgrid`/`rawx` console commands, LVGL wedge
+  detector in the heartbeat.
 
-## The open field regression (your first target)
+## The open item: on-battery verification of light sleep
 
-Kevin powered on the d0195fc build (USB-plugged, so the sleep loop should
-have been fully inert via the VBUS gate) and got:
+It cannot be bench-tested (VBUS-gated off while plugged; serial dies
+unplugged). Kevin's protocol, one observation at a time:
 
-- Stuck **"SYNCING"** banner for 13+ minutes — the 60-second stuck-radio
-  watchdog in `device_state.c` (housekeeping task) **never fired**.
-- Scrambled sprite + fully-black battery icon — a corrupted frame burned
-  during the boot/sync phase (`flushfail=333` accumulated, then `(+0)` —
-  not climbing; frozen bad frame, not active failure).
-- `psram free 3511k` vs ~4737k on the pre-sleep build (~1.2MB extra PSRAM
-  held — find out what).
+1. Unplug → screen fades → DOZING → dark loop engages (sleep loop logs are
+   invisible unplugged; behavior is the evidence).
+2. BOOT press → wake in ~¼s. PWR press → wake in ~½s (160ms poll + fade).
+3. Walk with it dark → steps counted on wake (40ms accel quanta).
+4. Overnight on battery → single-digit % drain over ~8h.
+5. Morning: it still wakes, clock is right (tick catch-up), steps persisted.
 
-Questions to answer: why didn't the watchdog fire (did the tick catch-up /
-`step_source_external_pacing` changes stall the housekeeping task even on
-USB)? Why did boot accumulate 333 flush drops with visible corruption? Is
-the sleep task truly inert on VBUS?
-
-## Verification bar
-
-- 5+ consecutive power-on cycles reaching ACTIVE, no stuck states, visually
-  clean (Kevin's eyes for the final call — snapshots can't see panel-level
-  corruption, per CLAUDE.md).
-- Then Kevin's on-battery protocol (also in prior commit message /
-  CLAUDE.md): unplug → fade → BOOT wake (~¼s) → PWR wake (~½s) → steps
-  count while dark → overnight drain (expect single-digit % over ~8h).
+Watch out for: heap min is ~29k since the draw buffer moved internal —
+if OOM symptoms appear under wifi load, the draw buffer height
+(`CONFIG_BSP_DISPLAY_LVGL_BUF_HEIGHT`/`BSP_LCD_RGB_BOUNCE_BUFFER_HEIGHT`)
+is the sizing lever. A latched-panel state still survives reboots (landmine
+#3): full 8-10s PWR hold is the reset.
 
 ## Practical notes
 
 - Build: `cd device && source ~/esp/esp-idf/export.sh && idf.py build &&
-  idf.py -p /dev/cu.usbmodem2101 flash`. No serial monitors running; the
-  port is free. Kill any `python3 ... serial` stragglers before flashing.
-- Serial heartbeat: `HB up=... flushfail=... wifi=... steps=... bat=...`
-  every 2s. Debug console commands: `snap`, `wake`, `sleep`, `tap X Y`,
-  `time Y M D h m`, `portal`, `portalx`.
-- Kevin is present this evening and can do eyes-on-glass checks and
-  on-battery tests when you ask — ask for specific, single observations.
-- Commit and push (origin = github.com/frolic/pocket-raichu, private) as
-  you go. Wiki logging is handled elsewhere; focus on the firmware.
+  idf.py -p /dev/cu.usbmodem2101 flash`. ALWAYS cd with the absolute
+  device/ path (cwd drift has polluted build dirs three times).
+- Serial heartbeat every 2s; console: `snap`, `wake`, `sleep`, `tap X Y`,
+  `time`, `portal`, `portalx`, `rawfill`, `rawgrid`, `rawx`.
+- Commit and push to main (origin = github.com/frolic/pocket-raichu,
+  private) as you go. History note: commit `1e046a7` accidentally contains
+  ~12k build-artifact files (untracked again in `4b38ae5a`); Kevin may
+  approve a history rewrite to drop it.

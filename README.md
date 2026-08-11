@@ -44,9 +44,10 @@ rebuild. Sprites emit a stable `pet_` prefix, so no code changes are needed.
 ## Notes for contributors (and AI sessions)
 
 See **`CLAUDE.md`** for hardware landmines learned the hard way — most
-importantly: **the LVGL draw buffer must be in PSRAM** (`buff_spiram=true`);
-an internal-DMA buffer causes horizontal-stripe panel corruption. Also: never
-touch GPIO13, and the battery keeps the panel powered so USB-unplug does not
+importantly: **the flush pipeline must wait for real SPI completion** (the
+vendored BSP's fault-tolerant flush provides this; without it the draw
+buffer is reused mid-DMA and the panel stripes/tears). Also: never touch
+GPIO13, and the battery keeps the panel powered so USB-unplug does not
 reset latched panel state.
 
 This repo is private: the PMD Pokémon sprites must not be published.

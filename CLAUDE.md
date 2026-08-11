@@ -48,23 +48,44 @@ remember "identical firmware, different display output across days" usually
 means persistent *device* state your own earlier firmware set, not flaky
 hardware.
 
-### 4. Radio and the live display corrupt each other on this board — but that
-was NOT the stripe cause (see #1). The flush-gate + device state machine
-(`device_flush_gate.c`, `device_state.c`) enforce "radio only while the
-screen is dark/static." Keep that invariant, but don't blame wifi for
-display corruption without a diff-proven link. During the saga, "offline
-builds also striped" because the real cause (#1) was in `main.c`
-unconditionally — wifi looked guilty by false correlation.
+### 4. Radio and the live display corrupt each other on this board — but
+wifi was NOT the stripe cause (see #1: no-wait flush semantics, and wifi's
+heap pressure only surfaced the bounce-alloc failures). The flush-gate +
+device state machine (`device_flush_gate.c`, `device_state.c`) enforce
+"radio only while the screen is dark/static." Keep that invariant — the
+2.4GHz burst noise coupling into the panel remains real at the analog
+level — but don't blame wifi for display corruption without a diff-proven
+link; during the saga it looked guilty by false correlation.
 
 ### 5. PSRAM runs at 40MHz (`CONFIG_SPIRAM_SPEED_40M`). Octal PSRAM on the
 S3 caps at 80MHz; 40 was chosen for margin. Fine as-is.
 
+## Boot sequence (the "SETTING CLOCK" screen)
+
+There is no battery-backed RTC: every cold boot loses the time, so boot
+runs a one-shot wifi clock sync before normal operation. Because radio and
+live rendering must never overlap (landmine #4), the sync presents as a
+boot screen — black cover + "SETTING CLOCK" banner from the very first frame
+(`watchface_set_boot_cover`, applied in `main.c` before anything renders) —
+with the flush gate sealed for the 15-25s the radio is up. On SNTP
+completion the radio shuts off for good (later corrections ride sync
+windows while dozing), the gate reopens with heal repaints, and the pet
+scene appears once, complete. No-wifi boots give up after a few attempts
+and continue with the last-known time. The stuck-radio watchdog
+force-releases any sync stuck >60s (session clock — PWR presses can't
+defer it), and the heartbeat's LVGL wedge detector restarts a frozen
+pipeline outright.
+
 ## Debugging method that actually works here
 
-**When the display corrupts: DIFF, don't theorize.** The saga was solved in
-one step by `git diff <last-confirmed-clean-commit> HEAD` on the display
-files, which surfaced the buff_dma/buff_spiram flip. Do that FIRST, before
-tuning byte order, clock, strip height, etc. — those were all noise.
+**When the display corrupts: DIFF, don't theorize — then CHARACTERIZE.**
+The 2025 saga was contained in one step by `git diff
+<last-confirmed-clean-commit> HEAD` on the display files (it surfaced the
+buff_dma/buff_spiram flip); the 2026-08-11 session then closed the root
+cause for good by building the render-test harness below and measuring the
+whole envelope instead of chasing symptoms (byte order, clock, strip
+height, queue depth were all noise). Both lessons hold: diff first for
+regressions, harness for anything the diff can't explain.
 
 - `.known-good/clean-full-featured.bin` — flash to restore a known-clean,
   full-featured build:
