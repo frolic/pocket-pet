@@ -136,6 +136,25 @@ battery. Facts that must not be relearned:
    snap) are PRE-EXISTING with large run-to-run variance (0-100 in the
    first minute across identical builds). Don't attribute them to sleep
    work without an A/B with several runs per side.
+7. **The 2026-08-11 "stuck SYNCING 13+ min, watchdog silent" field failure
+   was NOT the sleep loop** (8/8 bench power-cycles of the same build were
+   clean). Decomposition: a boot-paint flush storm burned a corrupt frame;
+   sync never resolved so the gate stayed closed (hence `flushfail` frozen
+   at `(+0)` — a closed gate attempts no flushes); and every PWR press
+   flapped SYNC_VISIBLE↔SYNCING, which back then reset the stuck-radio
+   watchdog clock per hop, deferring it indefinitely. Fixed: the watchdog
+   clock now marks radio-session entry only. A `psram free` ~1.2MB below
+   baseline is the `snap` console command's persistent buffers (RGB565 +
+   ARGB8888 full-screen, allocated once, kept) — not a leak.
+8. **A wedged SPI flush blocks the LVGL task forever** and with it every
+   lv_timer (including the PWR-wake poll — dark screen becomes
+   unwakeable) and every task that then takes the display lock (flush
+   gate, watchdog recovery, sleep loop handback). No counter shows it:
+   flushfail goes QUIET, not loud. The heartbeat's LVGL-liveness wedge
+   detector (`device_debug.c`, fed by a 500ms lv_timer in `main.c`)
+   restarts the device on stall — 10s leash normally, 2min in DOZING
+   because manual light sleep slows LVGL to catch-up windows. Don't
+   remove the liveness timer or gate it on state.
 
 ## Still open
 
