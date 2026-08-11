@@ -50,6 +50,18 @@ void app_main(void)
             .buff_spiram = false,
         }};
     display_config.lvgl_port_cfg.task_affinity = 1;
+    /* GPIO13 is a known panel-hazard on this board: driving it (a mistaken
+   "AMOLED boost enable" from a community note) latches the CO5300 into a
+   corrupted stripe mode that survives resets until a cold power-cycle,
+   because the battery keeps the panel powered. Pin it to high-Z input so
+   no code — now or later — can ever drive it. */
+    gpio_config_t gpio13_safe = {
+        .pin_bit_mask = 1ULL << GPIO_NUM_13,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+    };
+    gpio_config(&gpio13_safe);
     bsp_display_start_with_config(&display_config);
     bsp_display_brightness_set(80);
     bsp_display_lock(0);
