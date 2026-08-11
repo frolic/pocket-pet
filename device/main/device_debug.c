@@ -8,6 +8,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "device_debug.h"
+#include "device_state.h"
 #include "step_source.h"
 #include "battery_source.h"
 
@@ -44,6 +45,40 @@ static const char *reset_reason_name(esp_reset_reason_t reason)
 uint32_t device_debug_flush_failure_count(void)
 {
     return flush_failures;
+}
+
+static volatile uint32_t lvgl_alive_count;
+
+void device_debug_note_lvgl_alive(void)
+{
+    lvgl_alive_count++;
+}
+
+/* A wedged SPI flush blocks the LVGL task forever (it never recovers on its
+   own), which silently kills everything scheduled on LVGL timers — including
+   the PWR-button poll that wakes a dark screen — and deadlocks any task that
+   then takes the display lock (flush-gate close/open, the state watchdog's
+   recovery path). No counter sees it: flushfail goes quiet because no new
+   flushes are attempted. Detect "LVGL timers stopped firing" and restart.
+   Thresholds are heartbeat iterations; DOZING gets a long leash because the
+   manual light-sleep loop legitimately slows LVGL to catch-up windows. */
+#define LVGL_STALL_BEATS 5
+#define LVGL_STALL_BEATS_DOZING 60
+
+static bool lvgl_wedged(void)
+{
+    static uint32_t last_alive;
+    static int stalled_beats;
+    uint32_t alive = lvgl_alive_count;
+    if (alive != last_alive) {
+        last_alive = alive;
+        stalled_beats = 0;
+        return false;
+    }
+    int limit = device_state_get() == DEVICE_STATE_DOZING
+                    ? LVGL_STALL_BEATS_DOZING
+                    : LVGL_STALL_BEATS;
+    return ++stalled_beats >= limit;
 }
 
 static volatile bool quiet;
@@ -88,6 +123,12 @@ static void heartbeat_task(void *arg)
             }
         } else {
             storm_beats = 0;
+        }
+        if (lvgl_wedged()) {
+            printf("SELF-HEAL: LVGL task frozen in %d — restarting\n",
+                   (int)device_state_get());
+            vTaskDelay(pdMS_TO_TICKS(100));
+            esp_restart();
         }
         flush_failures_reported = failures;
         #ifdef FROLIC_DEBUG

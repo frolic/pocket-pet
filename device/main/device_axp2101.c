@@ -81,7 +81,10 @@ bool battery_source_charging(void)
 bool axp2101_vbus_present(void)
 {
     uint8_t status;
-    if (!ensure_ready() || !read_register(REG_STATUS1, &status)) return false;
+    /* Fail toward "plugged in": callers gate power saving — including the
+       manual light-sleep loop — on VBUS absence, so an I2C hiccup must read
+       as "still powered", never as a license to sleep. */
+    if (!ensure_ready() || !read_register(REG_STATUS1, &status)) return true;
     return (status & (1 << 5)) != 0; /* VBUS good */
 }
 

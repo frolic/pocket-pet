@@ -14,7 +14,6 @@
 #include "device_flush_gate.h"
 #include "device_touch_raw.h"
 #include "esp_timer.h"
-#include "esp_wifi.h"
 #include "power_button.h"
 
 /*
@@ -100,14 +99,22 @@ static void apply_ui(bool in_lvgl_context)
 /* Transition under the mutex; UI application is deferred to the caller
    (never take the display lock while holding state_mutex — the display
    callback arrives on the LVGL task in the opposite lock order). */
+static bool is_radio_state(device_state_t state)
+{
+    return state == DEVICE_STATE_SYNCING || state == DEVICE_STATE_SYNC_VISIBLE;
+}
+
 static bool transition(device_state_t next)
 {
     if (next == current) return false;
     printf("device_state: %s -> %s\n", state_name(current), state_name(next));
-    current = next;
-    if (next == DEVICE_STATE_SYNCING || next == DEVICE_STATE_SYNC_VISIBLE) {
+    /* The watchdog clock marks the radio SESSION start, not the latest state
+       hop: SYNCING<->SYNC_VISIBLE flaps (every PWR press while stuck syncing)
+       must not keep deferring the force-release. */
+    if (is_radio_state(next) && !is_radio_state(current)) {
         radio_state_entered_ms = (uint32_t)(esp_timer_get_time() / 1000);
     }
+    current = next;
     apply_power();
     return true;
 }
@@ -244,7 +251,7 @@ static void housekeeping_task(void *arg)
             if (now - radio_state_entered_ms > RADIO_STATE_TIMEOUT_MS) {
                 printf("device_state: WATCHDOG — stuck in %s, force-releasing\n",
                        state_name(current));
-                esp_wifi_stop();
+                device_wifi_force_stop();
                 device_flush_gate_open();
                 device_state_release_radio();
             }

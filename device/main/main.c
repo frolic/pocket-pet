@@ -22,6 +22,12 @@
 
 /* AMOLED: brightness 0 is pixels-off — so the fade-out ramp ends with the
    panel effectively sleeping. */
+static void lvgl_liveness_tick(lv_timer_t *timer)
+{
+    LV_UNUSED(timer);
+    device_debug_note_lvgl_alive();
+}
+
 static void display_dim(uint8_t brightness_percent)
 {
     /* The fade animation calls every frame; only touch the panel on change. */
@@ -58,6 +64,7 @@ void app_main(void)
     bsp_display_brightness_set(80);
     bsp_display_lock(0);
     frolic_app_init(lv_screen_active());
+    lv_timer_create(lvgl_liveness_tick, 500, NULL);
     display_sleep_set_dim_cb(display_dim);
     display_sleep_set_state_cb(device_state_report_display);
 #ifndef FROLIC_DISABLE_WIFI

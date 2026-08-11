@@ -247,8 +247,12 @@ static void station_event(void *arg, esp_event_base_t base, int32_t id, void *da
     if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_STOP || id == WIFI_EVENT_STA_START)) return;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         if (station_ever_connected) {
-            /* Mid-window drops retry; outside a window stay quiet. */
-            if (window_mode) esp_wifi_connect();
+            /* Drops while the radio is meant to be up (sync window, boot
+               sync) retry — a post-IP drop during boot sync otherwise idles
+               the radio with SNTP incomplete until the stuck-state watchdog.
+               After esp_wifi_stop the disconnect lands here too; radio_active
+               is already false then, so stay quiet. */
+            if (window_mode || radio_active) esp_wifi_connect();
             return;
         }
         wifi_event_sta_disconnected_t *event = data;
@@ -665,6 +669,13 @@ void device_wifi_window_end(void)
 bool device_wifi_is_offline(void)
 {
     return offline;
+}
+
+void device_wifi_force_stop(void)
+{
+    esp_wifi_stop();
+    window_mode = false;
+    radio_active = false;
 }
 
 static void enter_portal_task(void *arg)

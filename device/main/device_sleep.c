@@ -141,12 +141,12 @@ static void sleep_task(void *arg)
                wake_display ? "button wake" : "state/usb");
 
         /* Gate handback: radio states (SYNCING/PORTAL) close the gate on
-           their own behalf and must keep it; every other exit returns to
-           normal rendering. Button wakes need the gate open BEFORE the wake
-           frame renders. */
+           their own behalf and must keep it — even for a button wake that
+           raced a window opening (the wake then lands as SYNC_VISIBLE over
+           the frozen scene, same as any mid-window wake). Non-radio exits
+           reopen BEFORE the wake frame renders. */
         device_state_t state = device_state_get();
-        if (wake_display || state == DEVICE_STATE_DOZING ||
-            state == DEVICE_STATE_ACTIVE) {
+        if (state == DEVICE_STATE_DOZING || state == DEVICE_STATE_ACTIVE) {
             device_flush_gate_open();
         }
         if (wake_display) schedule_display_wake();

@@ -24,6 +24,10 @@ void device_wifi_window_end(void);
 /* No known network was reachable at the last attempt. */
 bool device_wifi_is_offline(void);
 
+/* Emergency radio teardown for the stuck-state watchdog: stops the radio and
+   resets window/active bookkeeping so future sync windows stay possible. */
+void device_wifi_force_stop(void);
+
 /* Enters the captive setup portal at runtime (wifi icon tap); no reboot. */
 void device_wifi_request_portal(void);
 
