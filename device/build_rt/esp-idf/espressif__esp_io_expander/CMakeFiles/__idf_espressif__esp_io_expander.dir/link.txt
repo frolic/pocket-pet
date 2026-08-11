@@ -1,2 +1,0 @@
-/Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/bin/xtensa-esp32s3-elf-ar qc libespressif__esp_io_expander.a CMakeFiles/__idf_espressif__esp_io_expander.dir/esp_io_expander.c.obj CMakeFiles/__idf_espressif__esp_io_expander.dir/esp_io_expander_gpio_wrapper.c.obj CMakeFiles/__idf_espressif__esp_io_expander.dir/esp_io_expander_gpio_wrapper_weak.c.obj
-/Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/bin/xtensa-esp32s3-elf-ranlib libespressif__esp_io_expander.a

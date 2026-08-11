@@ -13,3 +13,5 @@ app/sprites/*.c
 app/sprites/*.h
 __pycache__/
 *.pyc
+device/build_rt/
+device/build_rt2/
