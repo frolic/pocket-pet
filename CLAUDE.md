@@ -115,11 +115,32 @@ regressions, harness for anything the diff can't explain.
   snapshots can't see #1-class bugs — only the human's eyes (or a camera)
   can. Don't conclude "clean" from a snapshot alone.
 
-## Process (from the same disaster)
+## Process (from both disasters — 2025 stripes and 2026-08-11 flush saga)
 
 - **Do not declare the bug fixed until the human confirms with their eyes.**
   Panel-output bugs are invisible to every on-device counter and to
   framebuffer snapshots. "flushfail=0" and "no crashes" do NOT mean clean.
+- **Two-strike rule.** Two failed (or partially-failed) fixes for the same
+  symptom means the causal model is wrong. STOP patching. Build the
+  instrument that can falsify the model (characterization firmware, raw
+  draws, error-visible wrappers) before touching behavior again. In the
+  flush saga, four symptom patches (boot cover ×2, sealed double-pass,
+  heal repaints) burned hours; the harness found the three-layer root
+  cause in ~90 minutes — and Kevin had to be the one to call for it.
+- **A failed fix is data about the model, not just the fix.** Heal
+  repaints failing PROVED the drops weren't transient — that falsified
+  the model motivating them. Say out loud what a failure implies before
+  proposing the next fix.
+- **Make the fault visible before changing behavior.** This stack lied at
+  three layers (sh8601 swallowed errors, RGB-mode faked flush-ready, the
+  flushfail counter counted log strings). The first move against a
+  recurring invisible fault is logging the error code and geometry at the
+  failure site, not another mitigation.
+- **Inherited landmine rules are compressed observations, not mechanisms.**
+  "Draw buffer must be PSRAM" and "radio corrupts the display" were both
+  false — and designing AROUND them (boot cover, radio truce choreography)
+  built real complexity on top of misdiagnoses. When debugging inside a
+  rule's territory, re-derive its mechanism before trusting it.
 - When the human reasons from physics you got wrong (e.g. "the battery keeps
   the panel alive"), believe them and update.
 - When the human says "bisect against the known-good version," do that
