@@ -27,4 +27,18 @@ CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
 CONFIG_PM_ENABLE=y
 # CONFIG_BSP_DISPLAY_LVGL_AVOID_TEAR is not set
 CONFIG_LV_USE_SNAPSHOT=y
+
+# Light sleep is MANUAL (device_sleep.c), never tickless-automatic: tickless
+# idle measurably degrades the SPI flush pipeline on this board (~3-5 dropped
+# panel flushes/second while rendering, A/B-verified over serial), which was
+# the "light tearing" of the first auto-light-sleep attempt.
 # CONFIG_FREERTOS_USE_TICKLESS_IDLE is not set
+
+# CRITICAL: ESP_SLEEP_GPIO_RESET_WORKAROUND must stay OFF. Its startup hook
+# (esp_sleep_startup_init) arms hardware sleep-sel isolation on EVERY digital
+# pad — QSPI panel bus, I2C, GPIO13 — so any light sleep entry floats them
+# all and latches the CO5300 panel into persistent corruption (the
+# frozen-display failure of the second auto-light-sleep attempt). Cost of
+# disabling: a >6V ESD pulse on an input pad during light sleep can reset the
+# chip — visible and recoverable, unlike the panel latch.
+# CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND is not set

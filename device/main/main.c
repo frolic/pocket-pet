@@ -12,6 +12,7 @@
 #include "device_wifi.h"
 #include "device_ota.h"
 #include "device_power.h"
+#include "device_sleep.h"
 #include "device_state.h"
 #include "device_debug_console.h"
 #include "display_sleep.h"
@@ -70,6 +71,7 @@ void app_main(void)
 
     device_power_init();
     device_state_init();
+    device_sleep_init();
     device_debug_console_start();
 #ifndef FROLIC_DISABLE_WIFI
     device_wifi_start();

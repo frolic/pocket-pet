@@ -94,10 +94,51 @@ stable `pet_` prefix, so swapping character = point the `POKEMON` CMake var
 No code changes. Repo is **private** because the PMD Pokémon sprites must
 not be published; branding is generic "pocket pet."
 
+## Light sleep (device_sleep.c) — how it works and why it's MANUAL
+
+Three attempts at esp_pm automatic light sleep (tickless idle) failed; the
+landing architecture is a **manual `esp_light_sleep_start` loop** owned by
+`device_sleep.c`, engaged only when the state machine reports DOZING on
+battery. Facts that must not be relearned:
+
+1. **`CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND` must stay OFF.** Its startup
+   hook (`esp_sleep_startup_init` in esp-idf `sleep_gpio.c`) arms hardware
+   sleep-sel isolation on EVERY digital pad — QSPI panel bus, I2C, GPIO13 —
+   so the first light-sleep entry (manual OR automatic) floats them all and
+   latches the CO5300 into persistent corruption. This was the
+   frozen-display failure of the second auto-sleep attempt (under tickless
+   it also force-selects `PM_SLP_DISABLE_GPIO`). Cost of off: a >6V ESD
+   pulse on an input pad during sleep can reset the chip — visible and
+   recoverable, unlike the panel latch.
+2. **Do not enable `CONFIG_FREERTOS_USE_TICKLESS_IDLE`.** Suspected of
+   worsening the pre-existing sporadic SPI flush drops; more importantly,
+   automatic sleep can engage anywhere the pm locks allow, which is
+   unauditable on this board. Manual sleep needs neither tickless nor
+   `light_sleep_enable=true` (esp_pm stays DFS-only, the verified config).
+3. **Manual `esp_light_sleep_start` ignores esp_pm locks**, so the sleep
+   loop must create its own safety: it closes the flush gate before its
+   first sleep (no render → no flush → nothing on the panel bus mid-sleep)
+   and takes one I2C read (the accel sample) right before each sleep, which
+   serializes behind any in-flight I2C transaction.
+4. **FreeRTOS ticks freeze during manual light sleep.** The loop credits
+   slept time back via `xTaskCatchUpTicks` every ~1s and then yields ~10ms
+   so due tasks (OTA scheduler, watchdogs, NVS persist, idle/TWDT feed)
+   run. Without this, tick-based scheduling stretches ~25x.
+5. **Steps keep counting** because the loop sleeps in 40ms quanta (the
+   detector's sampling period) and calls `step_source_sample_now()` on each
+   wake while the normal sampling task stands down
+   (`step_source_external_pacing`). PWR is polled every 4th wake (~160ms
+   latency); BOOT wakes instantly via `gpio_wakeup_enable(GPIO0, LOW)` —
+   re-armed at every dark-loop entry because any later `gpio_config` on
+   GPIO0 silently resets the wake trigger type.
+6. **Flushfail context:** sporadic `spi transmit (queue) color failed`
+   drops during rendering (boot paint, ACTIVE animation, DOZING-entry
+   snap) are PRE-EXISTING with large run-to-run variance (0-100 in the
+   first minute across identical builds). Don't attribute them to sleep
+   work without an A/B with several runs per side.
+
 ## Still open
 
-- **Power management / full-day battery (goal 3): NOT done.** PM is currently
-  OFF. `device_power.c` has the DFS + light-sleep plumbing but it's disabled.
-  Re-enable carefully and verify on a real wear-test; the USJ pad must be
-  dropped on battery for light sleep to engage (`device_power_set_full`),
-  and GPIO13 stays untouched (#2). Do NOT bundle this with display changes.
+- **On-battery verification of light sleep** (it is VBUS-gated off while
+  plugged, and serial dies unplugged): overnight battery-drain wear test,
+  step-counting-while-dark walk test, PWR/BOOT wake latency by feel.

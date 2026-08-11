@@ -11,6 +11,7 @@
 #include "lvgl.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
 #include "step_source.h"
+#include "device_step_source.h"
 #include "device_debug.h"
 
 /*
@@ -231,54 +232,70 @@ static void steps_persist_tick(void)
     last_saved_steps = sw_steps;
 }
 
+/* Detector state persists across pacing modes: the dark-time sleep loop
+   takes over sampling mid-walk without losing the cadence run. */
+static float detect_baseline = 8192.0f;
+static bool detect_above;
+static uint32_t detect_last_peak_ms;
+static int detect_entry_run;
+static uint32_t persist_last_ms;
+static volatile bool external_pacing;
+
+void step_source_external_pacing(bool external)
+{
+    external_pacing = external;
+}
+
+void step_source_sample_now(void)
+{
+    if (!ready) return;
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    if (now - persist_last_ms >= 30000) {
+        persist_last_ms = now;
+        steps_persist_tick();
+    }
+    uint8_t buffer[6];
+    if (read_registers(0x35, buffer, 6) != ESP_OK) return;
+    int16_t ax = (int16_t)(buffer[0] | (buffer[1] << 8));
+    int16_t ay = (int16_t)(buffer[2] | (buffer[3] << 8));
+    int16_t az = (int16_t)(buffer[4] | (buffer[5] << 8));
+    float magnitude = sqrtf((float)ax * ax + (float)ay * ay + (float)az * az);
+    detect_baseline += 0.05f * (magnitude - detect_baseline);
+    float deviation = magnitude - detect_baseline;
+
+    if (detect_entry_run > 0 && now - detect_last_peak_ms > SW_RESET_GAP_MS) {
+        detect_entry_run = 0;
+    }
+    if (!detect_above && deviation > SW_PEAK_THRESHOLD) {
+        detect_above = true;
+        uint32_t gap = now - detect_last_peak_ms;
+        if (gap >= SW_MIN_STEP_MS && gap <= SW_MAX_STEP_MS) {
+            if (detect_entry_run < SW_ENTRY_STEPS) {
+                detect_entry_run++;
+                if (detect_entry_run == SW_ENTRY_STEPS) {
+                    sw_steps += SW_ENTRY_STEPS; /* credit the run-up */
+                }
+            } else {
+                sw_steps++;
+            }
+        } else {
+            detect_entry_run = 1; /* rhythm broken: this peak starts a new run */
+        }
+        detect_last_peak_ms = now;
+    } else if (detect_above && deviation < SW_PEAK_THRESHOLD * 0.5f) {
+        detect_above = false;
+    }
+}
+
 static void step_detect_task(void *arg)
 {
     (void)arg;
-    float baseline = 8192.0f;
-    bool above = false;
-    uint32_t last_peak_ms = 0;
-    int entry_run = 0;
-    int persist_countdown = 0;
     steps_restore();
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(SW_SAMPLE_MS));
-        if (--persist_countdown <= 0) {
-            persist_countdown = 30000 / SW_SAMPLE_MS; /* every 30s */
-            steps_persist_tick();
-        }
-        if (!ready) continue;
-        uint8_t buffer[6];
-        if (read_registers(0x35, buffer, 6) != ESP_OK) continue;
-        int16_t ax = (int16_t)(buffer[0] | (buffer[1] << 8));
-        int16_t ay = (int16_t)(buffer[2] | (buffer[3] << 8));
-        int16_t az = (int16_t)(buffer[4] | (buffer[5] << 8));
-        float magnitude = sqrtf((float)ax * ax + (float)ay * ay + (float)az * az);
-        baseline += 0.05f * (magnitude - baseline);
-        float deviation = magnitude - baseline;
-        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-
-        if (entry_run > 0 && now - last_peak_ms > SW_RESET_GAP_MS) {
-            entry_run = 0;
-        }
-        if (!above && deviation > SW_PEAK_THRESHOLD) {
-            above = true;
-            uint32_t gap = now - last_peak_ms;
-            if (gap >= SW_MIN_STEP_MS && gap <= SW_MAX_STEP_MS) {
-                if (entry_run < SW_ENTRY_STEPS) {
-                    entry_run++;
-                    if (entry_run == SW_ENTRY_STEPS) {
-                        sw_steps += SW_ENTRY_STEPS; /* credit the run-up */
-                    }
-                } else {
-                    sw_steps++;
-                }
-            } else {
-                entry_run = 1; /* rhythm broken: this peak starts a new run */
-            }
-            last_peak_ms = now;
-        } else if (above && deviation < SW_PEAK_THRESHOLD * 0.5f) {
-            above = false;
-        }
+        /* While the light-sleep loop paces sampling (device_sleep.c), the
+           task stands down so samples aren't taken twice per window. */
+        if (!external_pacing) step_source_sample_now();
     }
 }
 
