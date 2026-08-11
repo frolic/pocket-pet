@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include "esp_pm.h"
+#include "soc/usb_serial_jtag_reg.h"
+#include "device_axp2101.h"
 #include "device_power.h"
 
 /*
@@ -18,6 +20,8 @@ void device_power_set_full(bool full)
 {
     if (!ready || full == locks_held) return;
     if (full) {
+        /* USB pad back on first so the console returns with the clocks. */
+        REG_SET_BIT(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
         esp_pm_lock_acquire(cpu_lock);
         esp_pm_lock_acquire(freq_lock);
         esp_pm_lock_acquire(sleep_lock);
@@ -25,6 +29,11 @@ void device_power_set_full(bool full)
         esp_pm_lock_release(cpu_lock);
         esp_pm_lock_release(freq_lock);
         esp_pm_lock_release(sleep_lock);
+        /* The USJ PHY blocks light sleep even with no cable (Waveshare #6);
+           only drop the pad when genuinely unplugged. */
+        if (!axp2101_vbus_present()) {
+            REG_CLR_BIT(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+        }
     }
     locks_held = full;
 }

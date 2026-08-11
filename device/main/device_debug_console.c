@@ -15,6 +15,7 @@
 #include "device_debug.h"
 #include "display_sleep.h"
 #include "device_wifi.h"
+#include "esp_http_client.h"
 
 /*
  * Line-based debug console on the USB serial for remote-driving the watch:
@@ -164,6 +165,27 @@ static void console_task(void *arg)
         } else if (strcmp(line, "portal") == 0) {
             device_wifi_request_portal();
             printf("portal: requested\n");
+        } else if (strcmp(line, "portaltest") == 0) {
+            /* Simulate a client: fetch our own captive page over lwip. */
+            esp_http_client_config_t http = {
+                .url = "http://192.168.4.1/",
+                .timeout_ms = 5000,
+            };
+            esp_http_client_handle_t client = esp_http_client_init(&http);
+            if (client != NULL) {
+                esp_err_t err = esp_http_client_open(client, 0);
+                if (err == ESP_OK) {
+                    int64_t length = esp_http_client_fetch_headers(client);
+                    char peek[64] = {0};
+                    esp_http_client_read(client, peek, sizeof(peek) - 1);
+                    printf("portaltest: status=%d length=%lld first='%s'\n",
+                           esp_http_client_get_status_code(client),
+                           (long long)length, peek);
+                } else {
+                    printf("portaltest: open failed\n");
+                }
+                esp_http_client_cleanup(client);
+            }
         } else if (strcmp(line, "portalx") == 0) {
             device_wifi_portal_exit();
             printf("portal: exited\n");

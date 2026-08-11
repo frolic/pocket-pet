@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "freertos/FreeRTOS.h"
+#include "driver/gpio.h"
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "nvs_flash.h"
@@ -20,13 +21,26 @@
 
 /* AMOLED: brightness 0 is pixels-off — so the fade-out ramp ends with the
    panel effectively sleeping. */
+/* GPIO13 gates the AMOLED boost converter (community finding, Waveshare
+   issue #6): ~30mA saved while the panel is dark. The panel keeps its
+   registers, so raising it plus brightness restores the image. */
+#define LCD_BOOST_EN GPIO_NUM_13
+
 static void display_dim(uint8_t brightness_percent)
 {
     /* The fade animation calls every frame; only touch the panel on change. */
     static uint8_t last_sent = 255;
     if (brightness_percent == last_sent) return;
+    bool was_off = last_sent == 0;
     last_sent = brightness_percent;
+    if (brightness_percent > 0 && was_off) {
+        gpio_set_level(LCD_BOOST_EN, 1);
+        vTaskDelay(pdMS_TO_TICKS(10)); /* boost settle before pixels */
+    }
     bsp_display_brightness_set(brightness_percent);
+    if (brightness_percent == 0) {
+        gpio_set_level(LCD_BOOST_EN, 0);
+    }
 }
 
 void app_main(void)
@@ -49,6 +63,12 @@ void app_main(void)
             .buff_spiram = false,
         }};
     display_config.lvgl_port_cfg.task_affinity = 1;
+    gpio_config_t boost_en = {
+        .pin_bit_mask = 1ULL << LCD_BOOST_EN,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&boost_en);
+    gpio_set_level(LCD_BOOST_EN, 1);
     bsp_display_start_with_config(&display_config);
     bsp_display_brightness_set(80);
     bsp_display_lock(0);

@@ -355,8 +355,8 @@ static void flight_recorder_start(void)
         printf("flight: psram alloc failed\n");
         return;
     }
-    xTaskCreate(flight_sample_task, "flight", 3072, NULL, 3, NULL);
-    xTaskCreate(flight_console_task, "flightcon", 3072, NULL, 2, NULL);
+    /* Flight recorder retired (it found what it needed to find); its
+       internal-RAM task stacks now fund the portal's httpd instead. */
     xTaskCreate(step_detect_task, "stepdet", 3072, NULL, 4, NULL);
 }
 
