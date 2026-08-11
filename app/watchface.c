@@ -58,7 +58,6 @@ static void wifi_icon_clicked(lv_event_t *event)
 #define BATTERY_OK_COLOR lv_color_hex(0xF8F8F8)
 #define BATTERY_LOW_COLOR lv_color_hex(0xE04838)
 #define BATTERY_CHARGE_COLOR lv_color_hex(0x58C858)
-static lv_obj_t *boot_cover;
 static lv_obj_t *banner_shadow;
 static lv_obj_t *banner_text;
 static lv_timer_t *daily_revert_timer;
@@ -188,19 +187,6 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_set_pos(exp_fill, (BOX_WIDTH - EXP_BAR_WIDTH) / 2 + 4, EXP_BAR_Y + 4);
     lv_obj_set_style_bg_color(exp_fill, EXP_FILL_COLOR, 0);
     lv_obj_set_style_bg_opa(exp_fill, LV_OPA_COVER, 0);
-
-    /* Boot cover: blacks out the scene under the banner during the boot
-       clock sync, so it reads as a boot screen — and any flush drops from
-       the first-paint storm land invisibly on black instead of leaving
-       torn sprite strips frozen on glass. Created just below the banner
-       so only the banner shows above it. */
-    boot_cover = lv_obj_create(screen);
-    lv_obj_remove_style_all(boot_cover);
-    lv_obj_set_size(boot_cover, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_color(boot_cover, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(boot_cover, LV_OPA_COVER, 0);
-    lv_obj_add_flag(boot_cover, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(boot_cover, LV_OBJ_FLAG_HIDDEN);
 
     banner_shadow = pixel_text_create(screen);
     pixel_text_set_color(banner_shadow, lv_color_black());
@@ -380,15 +366,6 @@ void watchface_set_steps(uint32_t total)
     }
     uint32_t fill = (uint64_t)(total % STEP_GOAL) * EXP_FILL_MAX / STEP_GOAL;
     lv_obj_set_width(exp_fill, (int32_t)(fill / 4 * 4));
-}
-
-void watchface_set_boot_cover(bool shown)
-{
-    if (shown) {
-        lv_obj_remove_flag(boot_cover, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(boot_cover, LV_OBJ_FLAG_HIDDEN);
-    }
 }
 
 void watchface_set_banner(const char *text)

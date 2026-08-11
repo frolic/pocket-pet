@@ -217,7 +217,6 @@ static void radio_off_timer_cb(void *arg)
     printf("device_wifi: clock synced — radio off until next sync window\n");
     esp_sntp_stop();
     esp_wifi_stop();
-    device_flush_gate_open();
     radio_active = false;
     device_state_release_radio();
 }
@@ -355,7 +354,6 @@ static void give_up_offline(void)
     printf("device_wifi: no known network reachable — continuing offline\n");
     offline = true;
     esp_wifi_stop();
-    device_flush_gate_open();
     radio_active = false;
     device_state_release_radio();
 }
@@ -367,7 +365,11 @@ static void station_start(void)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, station_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, station_event, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    device_flush_gate_close();
+    /* Boot sync runs with LIVE rendering: the eyes-verified radio test
+       (harness mode 2, H3/H4) showed clean animation under active
+       scanning once the flush pipeline gained real wait semantics. Dark
+       sync windows and the sleep loop still gate — they seal for their
+       own reasons (nothing to show / nothing mid-transfer in sleep). */
     ESP_ERROR_CHECK(esp_wifi_start());
     radio_active = true;
     /* Modem power-save transitions can glitch the QSPI display pipeline. */

@@ -304,6 +304,7 @@ static void nvs_stress_task(void *arg)
 static lv_obj_t *h_rect;
 static volatile int h_frames_left;
 static volatile bool h_fade;
+static volatile uint32_t h_rect_color; /* phase label: red = radio live */
 static lv_timer_t *h_frame_timer;
 
 /* Runs on the LVGL task — same execution context as every real app render.
@@ -319,15 +320,17 @@ static void h_frame_tick(lv_timer_t *timer)
                                         : lv_color_hex(0x442244),
                               0);
     lv_obj_set_pos(h_rect, (frame * 7) % 200, (frame * 13) % 300);
+    lv_obj_set_style_bg_color(h_rect, lv_color_hex(h_rect_color), 0);
     lv_obj_invalidate(lv_screen_active());
     /* The app's fade calls the brightness command from this task too. */
     if (h_fade) bsp_display_brightness_set(30 + (frame % 50));
 }
 
-static void h_frames(const char *load, int frames, bool fade)
+static void h_frames(const char *load, int frames, bool fade, uint32_t color)
 {
     printf("RT-H %s begin frames=%d\n", load, frames);
     h_fade = fade;
+    h_rect_color = color;
     h_frames_left = frames;
     while (h_frames_left > 0) vTaskDelay(pdMS_TO_TICKS(100));
     printf("RT-H %s done\n", load);
@@ -366,26 +369,28 @@ static void phase_h_lvgl(void)
     h_frame_timer = lv_timer_create(h_frame_tick, 15, NULL);
     bsp_display_unlock();
 
-    h_frames("H1-plain", 200, false);
+    /* Rect color labels the phase on glass: yellow/green = radio idle,
+       RED = radio actively scanning (watch hardest), white = fade test. */
+    h_frames("H1-plain", 200, false, 0xDDAA33);
 
     nvs_stress_running = true;
     xTaskCreate(nvs_stress_task, "rtnvs", 3072, NULL, 4, NULL);
-    h_frames("H2-nvs", 200, false);
+    h_frames("H2-nvs", 200, false, 0x33BB55);
     nvs_stress_running = false;
     vTaskDelay(pdMS_TO_TICKS(200));
 
     radio_scanning = true;
     xTaskCreate(scan_task, "rtscan2", 4096, NULL, 5, NULL);
-    h_frames("H3-wifi", 200, false);
+    h_frames("H3-wifi", 400, false, 0xDD2222);
 
     nvs_stress_running = true;
     xTaskCreate(nvs_stress_task, "rtnvs2", 3072, NULL, 4, NULL);
-    h_frames("H4-wifi-nvs", 200, false);
+    h_frames("H4-wifi-nvs", 400, false, 0xDD2222);
     nvs_stress_running = false;
     radio_scanning = false;
     vTaskDelay(pdMS_TO_TICKS(2500));
 
-    h_frames("H5-fade", 200, true);
+    h_frames("H5-fade", 200, true, 0xFFFFFF);
     bsp_display_brightness_set(80);
 }
 

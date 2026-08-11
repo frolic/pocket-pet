@@ -321,6 +321,20 @@ static void console_task(void *arg)
             int pace = 0;
             sscanf(line + 7, "%d %d", &height, &pace);
             raw_grid(height, pace);
+        } else if (strcmp(line, "i2cscan") == 0) {
+            /* Definitive on-board sensor inventory (settles what the docs
+               don't: ambient light sensor? battery-backed RTC?). */
+            i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
+            if (bus == NULL) {
+                printf("i2cscan: bus not initialized\n");
+            } else {
+                for (uint8_t address = 0x08; address <= 0x77; address++) {
+                    if (i2c_master_probe(bus, address, 50) == ESP_OK) {
+                        printf("i2cscan: found 0x%02X\n", address);
+                    }
+                }
+                printf("i2cscan: done\n");
+            }
         } else if (strcmp(line, "rawx") == 0) {
             bsp_display_lock(0);
             display_sleep_set_hold(false);

@@ -48,33 +48,32 @@ remember "identical firmware, different display output across days" usually
 means persistent *device* state your own earlier firmware set, not flaky
 hardware.
 
-### 4. Radio and the live display corrupt each other on this board — but
-wifi was NOT the stripe cause (see #1: no-wait flush semantics, and wifi's
-heap pressure only surfaced the bounce-alloc failures). The flush-gate +
-device state machine (`device_flush_gate.c`, `device_state.c`) enforce
-"radio only while the screen is dark/static." Keep that invariant — the
-2.4GHz burst noise coupling into the panel remains real at the analog
-level — but don't blame wifi for display corruption without a diff-proven
-link; during the saga it looked guilty by false correlation.
+### 4. "Radio corrupts the live display" — FALSIFIED 2026-08-11, same
+misdiagnosis family as #1. Wifi's heap pressure triggered the bounce-alloc
+NO_MEM flush failures, so radio activity correlated with corruption without
+causing it. After the flush fix, the harness rendered full-speed animation
+under continuous active scanning with zero driver-level failures AND
+eyes-verified clean glass (mode 2, H3/H4, red-rect phases). Boot clock sync
+now runs with live rendering (pet plays under the SETTING CLOCK banner).
+The flush gate still exists for the cases where sealing is inherently
+right: the manual sleep loop (nothing may be mid-SPI-transfer at
+esp_light_sleep_start) and dark sync windows (screen is off anyway).
 
 ### 5. PSRAM runs at 40MHz (`CONFIG_SPIRAM_SPEED_40M`). Octal PSRAM on the
 S3 caps at 80MHz; 40 was chosen for margin. Fine as-is.
 
-## Boot sequence (the "SETTING CLOCK" screen)
+## Boot sequence (the "SETTING CLOCK" banner)
 
 There is no battery-backed RTC: every cold boot loses the time, so boot
-runs a one-shot wifi clock sync before normal operation. Because radio and
-live rendering must never overlap (landmine #4), the sync presents as a
-boot screen — black cover + "SETTING CLOCK" banner from the very first frame
-(`watchface_set_boot_cover`, applied in `main.c` before anything renders) —
-with the flush gate sealed for the 15-25s the radio is up. On SNTP
-completion the radio shuts off for good (later corrections ride sync
-windows while dozing), the gate reopens with heal repaints, and the pet
-scene appears once, complete. No-wifi boots give up after a few attempts
-and continue with the last-known time. The stuck-radio watchdog
-force-releases any sync stuck >60s (session clock — PWR presses can't
-defer it), and the heartbeat's LVGL wedge detector restarts a frozen
-pipeline outright.
+runs a one-shot wifi clock sync before the clock is honest. The pet scene
+boots live immediately; a "SETTING CLOCK" banner sits over the playing
+scene for the 15-25s the radio is up (rendering no longer gates during
+radio — landmine #4 is falsified). On SNTP completion the radio shuts off
+for good; later corrections ride sync windows while dozing. No-wifi boots
+give up after a few attempts and continue with the last-known time. The
+stuck-radio watchdog force-releases any sync stuck >60s (session clock —
+PWR presses can't defer it), and the heartbeat's LVGL wedge detector
+restarts a frozen pipeline outright.
 
 ## Debugging method that actually works here
 

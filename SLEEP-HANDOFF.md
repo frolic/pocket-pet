@@ -17,12 +17,16 @@ what he does not accept is abandoning the problem.
   frozen frame) is fully explained and fixed — see CLAUDE.md landmine #1
   and the `main` history from `530757e` through the flush-architecture
   commit. Highlights: watchdog session clock (state flaps can't defer it),
-  LVGL wedge self-heal, VBUS fail-toward-plugged, boot presents as a black
-  boot screen, and above all the fault-tolerant flush + internal DMA draw
+  LVGL wedge self-heal, VBUS fail-toward-plugged, boot runs with live rendering (pet plays under the
+  SETTING CLOCK banner), and above all the fault-tolerant flush + internal DMA draw
   buffer. Bench baseline is now `flushfail=0(+0)`; ANY flush failure line
   is a regression.
-- Kevin eyes-confirmed a clean boot (white flash → black SYNCING → complete
-  pet reveal) on the final build.
+- Kevin eyes-confirmed clean rendering under active radio (harness red-rect
+  phases), which falsified landmine #4 and unlocked the live boot.
+- I2C scan (`i2cscan` console command): 0x18 ES8311 codec, 0x34 AXP2101,
+  0x40 (unidentified), **0x51 PCF85063 RTC — present but UNUSED by
+  firmware**, 0x6B QMI8658. No ambient light sensor. The RTC could remove
+  the boot clock-sync wait for every boot where it holds valid time.
 - The manual sleep loop (`device_sleep.c`) itself was never the problem —
   it is unchanged in architecture and still VBUS-gated off while plugged.
 - Diagnostics that now exist: `FROLIC_RENDER_TEST=1|2` characterization
