@@ -62,18 +62,26 @@ esp_light_sleep_start) and dark sync windows (screen is off anyway).
 ### 5. PSRAM runs at 40MHz (`CONFIG_SPIRAM_SPEED_40M`). Octal PSRAM on the
 S3 caps at 80MHz; 40 was chosen for margin. Fine as-is.
 
-## Boot sequence (the "SETTING CLOCK" banner)
+## Boot, clock, and radio lifecycle
 
-There is no battery-backed RTC: every cold boot loses the time, so boot
-runs a one-shot wifi clock sync before the clock is honest. The pet scene
-boots live immediately; a "SETTING CLOCK" banner sits over the playing
-scene for the 15-25s the radio is up (rendering no longer gates during
-radio — landmine #4 is falsified). On SNTP completion the radio shuts off
-for good; later corrections ride sync windows while dozing. No-wifi boots
-give up after a few attempts and continue with the last-known time. The
-stuck-radio watchdog force-releases any sync stuck >60s (session clock —
-PWR presses can't defer it), and the heartbeat's LVGL wedge detector
-restarts a frozen pipeline outright.
+The PCF85063 RTC (0x51, battery-backed) makes the clock honest ~1.8s into
+boot (`device_rtc_restore` in main); the pet scene boots live immediately
+with no sync banner. The "SETTING CLOCK" banner sync only runs when the
+RTC is invalid (first boot ever / battery pull / oscillator-stop) or when
+fresh portal credentials need validating. Every SNTP completion writes the
+RTC back.
+
+**Radio follows the screen** (`radio_policy_task` in device_wifi.c): wifi
+up + connected while the watch face is on (future uploads; SNTP drift
+correction rides along), down when dark. The wifi fan icon shows the
+truth: hidden = radio down and all well, pulsing yellow = seeking, white =
+connected, red = offline or stranded (tap = portal). A failed connect goes
+quiet until the next screen-on session. Sync windows (dozing, OTA) and the
+portal own the radio themselves; `sleep_eligible` refuses to light-sleep
+until the policy has torn the radio down. The stuck-radio watchdog
+force-releases any banner sync stuck >60s (session clock — PWR presses
+can't defer it), and the heartbeat's LVGL wedge detector restarts a frozen
+pipeline outright.
 
 ## Debugging method that actually works here
 

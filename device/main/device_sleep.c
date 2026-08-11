@@ -11,6 +11,7 @@
 #include "device_axp2101.h"
 #include "device_flush_gate.h"
 #include "device_step_source.h"
+#include "device_wifi.h"
 #include "display_sleep.h"
 #include "power_button.h"
 
@@ -64,7 +65,10 @@ static void schedule_display_wake(void)
 
 static bool sleep_eligible(void)
 {
-    return device_state_get() == DEVICE_STATE_DOZING && !axp2101_vbus_present();
+    /* radio_active check: the screen-follows-radio policy shuts wifi down
+       shortly after DOZING lands; never light-sleep across that teardown. */
+    return device_state_get() == DEVICE_STATE_DOZING &&
+           !device_wifi_radio_active() && !axp2101_vbus_present();
 }
 
 static void catch_up(int64_t *credit_us)

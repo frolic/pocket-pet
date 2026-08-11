@@ -211,15 +211,12 @@ static EventGroupHandle_t window_events;
 static volatile bool window_mode;
 #define WINDOW_GOT_IP_BIT BIT0
 
-/* Radio and animation corrupt each other on this board, and normal operation
-   doesn't need wifi: once the clock syncs, the radio shuts down entirely.
-   Future sync windows re-enable it briefly with the pet asleep. */
-static void radio_off_timer_cb(void *arg)
+/* First-boot sync only: clear the SETTING CLOCK banner. The radio itself
+   stays up — its lifecycle belongs to the screen-follows policy below, and
+   SNTP keeps polling for free drift correction whenever connected. */
+static void sync_banner_release_cb(void *arg)
 {
-    printf("device_wifi: clock synced — radio off until next sync window\n");
-    esp_sntp_stop();
-    esp_wifi_stop();
-    radio_active = false;
+    printf("device_wifi: clock synced\n");
     device_state_release_radio();
 }
 
@@ -228,10 +225,10 @@ static void on_time_synced(struct timeval *tv)
     printf("device_wifi: SNTP time sync complete\n");
     /* Persist into the battery-backed RTC: future boots skip the sync. */
     device_rtc_store();
-    /* Let SNTP finish its bookkeeping, then silence the radio. */
+    /* Let SNTP finish its bookkeeping, then drop the boot banner. */
     const esp_timer_create_args_t timer_args = {
-        .callback = radio_off_timer_cb,
-        .name = "radio_off",
+        .callback = sync_banner_release_cb,
+        .name = "sync_done",
     };
     static esp_timer_handle_t timer;
     if (timer == NULL) {
@@ -742,6 +739,48 @@ bool device_wifi_is_connected(void)
     return connected;
 }
 
+/*
+ * Radio follows the screen: wifi up and connected while the watch face is
+ * on (uploads and drift correction whenever the user can see the watch),
+ * down when dark (battery — and the sleep loop waits for radio_active to
+ * clear before it will light-sleep). Sync windows and the portal own the
+ * radio themselves; a failed connect goes quiet (offline icon) until the
+ * next wake instead of hammering retries.
+ */
+static void radio_policy_task(void *arg)
+{
+    (void)arg;
+    bool attempted_this_session = false;
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        if (in_portal || window_mode || network_count == 0) continue;
+        device_state_t state = device_state_get();
+        bool want = state == DEVICE_STATE_ACTIVE || state == DEVICE_STATE_SYNC_VISIBLE;
+        if (!want) {
+            attempted_this_session = false;
+            if (radio_active) {
+                printf("device_wifi: screen dark — radio off\n");
+                esp_wifi_stop();
+                connected = false;
+                radio_active = false;
+            }
+            continue;
+        }
+        if (radio_active || attempted_this_session) continue;
+        attempted_this_session = true;
+        printf("device_wifi: screen on — radio up\n");
+        if (esp_wifi_start() != ESP_OK) continue;
+        radio_active = true;
+        esp_wifi_set_ps(WIFI_PS_NONE);
+        if (!connect_best()) {
+            /* Nothing reachable: radio down, offline icon, retry on the
+               next screen-on session. */
+            esp_wifi_stop();
+            radio_active = false;
+        }
+    }
+}
+
 void device_wifi_start(void)
 {
     /* Local clock renders in London time, DST-aware, once SNTP lands. */
@@ -772,14 +811,15 @@ void device_wifi_start(void)
         if (validating_index >= network_count) validating_index = network_count - 1;
         if (device_rtc_time_valid() && !validating_boot) {
             /* The RTC already made the clock honest: no visible boot sync.
-               Drift correction and OTA ride the dozing sync windows. */
+               The policy task raises the radio for the screen-on session. */
             printf("device_wifi: clock from RTC — skipping boot sync\n");
             station_prepare();
-            return;
+        } else {
+            device_state_boot_sync();
+            vTaskDelay(pdMS_TO_TICKS(1200));
+            station_start();
         }
-        device_state_boot_sync();
-        vTaskDelay(pdMS_TO_TICKS(1200));
-        station_start();
+        xTaskCreate(radio_policy_task, "radiopol", 3072, NULL, 3, NULL);
     } else {
         device_state_portal();
         portal_start();
