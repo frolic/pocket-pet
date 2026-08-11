@@ -1,39 +1,52 @@
-# frolic
+# pocket pet
 
-Virtual-pet watch firmware for the Waveshare ESP32-S3-Touch-AMOLED-2.06 (410×502 AMOLED, QMI8658 IMU with hardware pedometer). Pocket Pikachu spirit: a critter that lives on your wrist and reacts to your steps.
+A Pocket-Pikachu-style virtual-pet watch for the Waveshare
+ESP32-S3-Touch-AMOLED-2.06 dev kit. A pixel pet wanders a GBA-style grass
+field, counts your real steps, sleeps when the screen sleeps, wakes with a
+stretch and yawn, and levels up as you walk. Simulator-first (LVGL SDL sim on
+macOS); the same portable `app/` code runs on device.
 
-Development is simulator-first: the whole UI runs natively on macOS via LVGL's SDL backend at the watch's exact resolution, so look/feel iteration never waits on a flash cycle.
+## Layout
 
-## Run the simulator
+- `app/` — portable UI + game logic (pet FSM, watchface, step/game loop).
+  Runs in both the sim and on device.
+- `sim/` — SDL LVGL simulator (fast iteration on Mac).
+- `device/` — ESP-IDF firmware (main app, wifi/OTA, power, drivers, vendored
+  Waveshare BSP).
+- `tools/` — asset generators (sprites/HUD/font → C arrays) and
+  `watch_remote.py` (serial screenshots + synthetic taps).
+- `assets/<pokemon>/` — source PMD sprite sheets (the only sprite source in
+  git; C arrays are generated at build).
+- `.known-good/` — preserved clean binaries for one-flash recovery.
 
-```sh
-brew install cmake sdl2
-cmake -B build
-cmake --build build -j4
-./build/frolic_sim
+## Build & run
+
+Sim:
+```bash
+cmake -B build -S . && cmake --build build && ./build/frolic_sim
 ```
 
-A 410×502 window opens: clock, goal ring, pet, live step count. The fake step source walks in bursts; click the pet to make it hop. `FROLIC_SMOKE=1 ./build/frolic_sim` runs ~3s and exits (build verification).
-
-## Structure
-
+Device (ESP-IDF ~5.4):
+```bash
+source ~/esp/esp-idf/export.sh
+cd device
+idf.py build
+idf.py -p /dev/cu.usbmodem2101 flash
 ```
-app/   portable app logic — everything here must build for both sim and device
-  frolic_app.c   entry point: builds UI, polls the step source
-  watchface.c    layout: clock, goal ring, step count
-  pet.c          the critter: idle bob, hop on click, reacts to steps
-  step_source.h  interface the app polls for steps
-sim/   macOS simulator target
-  main.c              LVGL + SDL window at 410×502
-  fake_step_source.c  simulated walker
-```
+`FROLIC_DISABLE_WIFI=1` builds an offline-only watch (pet + steps, no radio).
 
-The `app/` ↔ `sim/` split is the contract: app code only touches LVGL and the interfaces in `app/`, never SDL or hardware. The future device target (PlatformIO or ESP-IDF) supplies its own `main` plus a `step_source` reading the QMI8658 pedometer, and `app/` comes along unchanged.
+## Swapping the character
 
-## Sprites
+Drop a new PMD sprite folder in `assets/`, point the `POKEMON` CMake var (sim)
+or the `assets/raichu` path in `device/main/CMakeLists.txt` (device) at it, and
+rebuild. Sprites emit a stable `pet_` prefix, so no code changes are needed.
 
-The pet is currently drawn from LVGL primitives. To use real sprite art, convert PNGs with the [LVGL image converter](https://lvgl.io/tools/imageconverter) (LV_COLOR_FORMAT_RGB565A8 is a good fit) and swap the body construction in `pet.c` for an `lv_image`.
+## Notes for contributors (and AI sessions)
 
-## Device notes
+See **`CLAUDE.md`** for hardware landmines learned the hard way — most
+importantly: **the LVGL draw buffer must be in PSRAM** (`buff_spiram=true`);
+an internal-DMA buffer causes horizontal-stripe panel corruption. Also: never
+touch GPIO13, and the battery keeps the panel powered so USB-unplug does not
+reset latched panel state.
 
-Target hardware: ESP32-S3R8, CO5300 display driver over QSPI, FT3168 touch, QMI8658 IMU, PCF85063 RTC, AXP2101 PMIC. Reference firmwares: [chat-stick](https://github.com/steveruizok/chat-stick) (provisioning + server architecture, targets the 1.8" sibling board) and [OLEDS3Watch](https://github.com/joaquimorg/OLEDS3Watch) (this exact board on ESP-IDF).
+This repo is private: the PMD Pokémon sprites must not be published.
