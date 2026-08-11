@@ -22,7 +22,16 @@ static SemaphoreHandle_t render_done;
 static void render_and_signal_cb(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
-    lv_refr_now(NULL);
+    /* Seal a COMPLETE frame: repaint everything, twice. Sporadic SPI flush
+       drops (~1% of strips under boot congestion) leave stale strips that a
+       dirty-area render never revisits — frozen on glass for the whole
+       gated window. The full invalidate heals all earlier damage, and since
+       the scene is static across the passes, a strip stays wrong only if it
+       drops in BOTH (~0.01%). */
+    for (int pass = 0; pass < 2; pass++) {
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(NULL);
+    }
     xSemaphoreGive(render_done);
 }
 

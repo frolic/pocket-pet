@@ -65,6 +65,13 @@ void app_main(void)
     bsp_display_lock(0);
     frolic_app_init(lv_screen_active());
     lv_timer_create(lvgl_liveness_tick, 500, NULL);
+#ifndef FROLIC_DISABLE_WIFI
+    /* Boot screen from the very first frame: the scene stays hidden until
+       the boot clock sync ends (device_state clears the cover). Painting
+       black + banner instead of the full scene keeps the first flushes far
+       below the SPI queue's congestion point, so nothing visible tears. */
+    watchface_set_boot_cover(true);
+#endif
     display_sleep_set_dim_cb(display_dim);
     display_sleep_set_state_cb(device_state_report_display);
 #ifndef FROLIC_DISABLE_WIFI
