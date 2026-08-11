@@ -46,22 +46,13 @@ void app_main(void)
         .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,
         .double_buffer = BSP_LCD_DRAW_BUFF_DOUBLE,
         .flags = {
-            .buff_dma = true,
-            .buff_spiram = false,
+            .buff_dma = false,
+            .buff_spiram = true,
         }};
     display_config.lvgl_port_cfg.task_affinity = 1;
-    /* GPIO13 is a known panel-hazard on this board: driving it (a mistaken
-   "AMOLED boost enable" from a community note) latches the CO5300 into a
-   corrupted stripe mode that survives resets until a cold power-cycle,
-   because the battery keeps the panel powered. Pin it to high-Z input so
-   no code — now or later — can ever drive it. */
-    gpio_config_t gpio13_safe = {
-        .pin_bit_mask = 1ULL << GPIO_NUM_13,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    };
-    gpio_config(&gpio13_safe);
+    /* GPIO13 must be left at its power-on default and never configured: the
+   clean demo never touched it; configuring it (drive OR float) corrupts
+   the panel. No gpio_config for pin 13 anywhere. */
     bsp_display_start_with_config(&display_config);
     bsp_display_brightness_set(80);
     bsp_display_lock(0);

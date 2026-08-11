@@ -533,15 +533,12 @@ static lv_display_t *bsp_display_lcd_init()
         },
         .flags = {
             .sw_rotate = true,
-            /* Small internal DMA buffer. Root causes (researched): esp-bsp
-               issue #716 — PSRAM draw buffers are chunked and flush_ready
-               fires per-chunk, so LVGL repaints a buffer still queued on
-               QSPI (block-scramble); and esp_lcd needs internal staging
-               buffers for PSRAM color transfers, which starve when wifi
-               claims internal RAM ("spi transmit (queue) color failed").
-               A ~12KB internal buffer sidesteps both. */
-            .buff_dma = true,
-            .buff_spiram = false,
+            /* Draw buffer in PSRAM. Empirically (Kevin's confirmed-clean
+               demo vs every striped build), the internal-DMA draw buffer is
+               what stripes this CO5300 panel; PSRAM is clean. This reverts
+               the mistaken overnight switch to internal. */
+            .buff_dma = false,
+            .buff_spiram = true,
 #if CONFIG_BSP_DISPLAY_LVGL_FULL_REFRESH
             .full_refresh = 1,
 #elif CONFIG_BSP_DISPLAY_LVGL_DIRECT_MODE
