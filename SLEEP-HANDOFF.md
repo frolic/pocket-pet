@@ -27,23 +27,32 @@ what he does not accept is abandoning the problem.
   0x40 (unidentified), **0x51 PCF85063 RTC — present but UNUSED by
   firmware**, 0x6B QMI8658. No ambient light sensor. The RTC could remove
   the boot clock-sync wait for every boot where it holds valid time.
+- The RTC is now ADOPTED (`device_rtc.c`): restore at boot makes the clock
+  honest in ~1.8s and the banner sync skips itself; SNTP completions store
+  back. The SETTING CLOCK banner only exists for first-boot/battery-pull/
+  credential-validation boots.
+- **Radio follows the screen** (`radio_policy_task`): wifi connected while
+  the face is on (wifi fan icon: yellow pulse seeking → white connected,
+  red offline/stranded, hidden when down-and-fine), torn down when dark.
+  `sleep_eligible` waits for the teardown before light-sleeping.
 - The manual sleep loop (`device_sleep.c`) itself was never the problem —
-  it is unchanged in architecture and still VBUS-gated off while plugged.
+  its architecture is unchanged and still VBUS-gated off while plugged.
 - Diagnostics that now exist: `FROLIC_RENDER_TEST=1|2` characterization
-  firmware, `rawfill`/`rawgrid`/`rawx` console commands, LVGL wedge
-  detector in the heartbeat.
+  firmware, `rawfill`/`rawgrid`/`rawx`/`i2cscan` console commands,
+  `tools/cycle_harness.py`, LVGL wedge detector in the heartbeat.
 
 ## The open item: on-battery verification of light sleep
 
-It cannot be bench-tested (VBUS-gated off while plugged; serial dies
-unplugged). Kevin's protocol, one observation at a time:
+**IN PROGRESS: Kevin unplugged the watch on the night of 2026-08-11/12 on
+build `330b5837` for the overnight drain test.** Morning checklist:
 
-1. Unplug → screen fades → DOZING → dark loop engages (sleep loop logs are
-   invisible unplugged; behavior is the evidence).
+1. Battery %: single-digit drop over ~8h = light sleep PROVEN. Large drop =
+   the loop likely never engaged or wakes too often — add NVS sleep-stats
+   instrumentation (slept minutes, wake counts, persisted each catch-up)
+   before theorizing.
 2. BOOT press → wake in ~¼s. PWR press → wake in ~½s (160ms poll + fade).
-3. Walk with it dark → steps counted on wake (40ms accel quanta).
-4. Overnight on battery → single-digit % drain over ~8h.
-5. Morning: it still wakes, clock is right (tick catch-up), steps persisted.
+3. Clock correct (tick catch-up + RTC), steps persisted and sane.
+4. Later, any walk: steps count while dark (40ms accel quanta).
 
 Watch out for: heap min is ~29k since the draw buffer moved internal —
 if OOM symptoms appear under wifi load, the draw buffer height
