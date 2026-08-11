@@ -522,7 +522,10 @@ static lv_display_t *bsp_display_lcd_init()
         .hres = BSP_LCD_H_RES,
         .vres = BSP_LCD_V_RES,
 #if LVGL_VERSION_MAJOR >= 9
-        .color_format = LV_COLOR_FORMAT_RGB565,
+        /* Render directly in the panel's byte order: the post-render
+           in-place swap raced the DMA on internal buffers (pale-green
+           stripe rows = unswapped RGB565). No swap pass, no race. */
+        .color_format = LV_COLOR_FORMAT_RGB565_SWAPPED,
 #endif
 
         .rotation = {
@@ -547,7 +550,7 @@ static lv_display_t *bsp_display_lcd_init()
             .direct_mode = 1,
 #endif
 #if LVGL_VERSION_MAJOR >= 9
-            .swap_bytes = true,
+            .swap_bytes = false,
 #endif
         }};
     const lvgl_port_display_rgb_cfg_t rgb_cfg = {
