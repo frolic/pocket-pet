@@ -42,3 +42,26 @@ CONFIG_LV_USE_SNAPSHOT=y
 # disabling: a >6V ESD pulse on an input pad during light sleep can reset the
 # chip — visible and recoverable, unlike the panel latch.
 # CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND is not set
+
+# Leash BLE (P1): NimBLE host, peripheral-only, single connection —
+# smallest-footprint config; the phone (or Mac) is always the central.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+
+# Wifi + BLE coexistence on 512KB internal RAM: satisfy wifi/lwip buffer
+# allocations from PSRAM (esp_wifi_init aborted with the BT controller
+# resident otherwise).
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# NimBLE host allocates from PSRAM; controller sized for 1 connection +
+# advertising; wifi static RX trimmed — the internal-RAM budget that lets
+# wifi ("alloc pp wdev funcs") and BLE coexist on this board.
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+CONFIG_BT_CTRL_BLE_MAX_ACT=2
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+# LVGL heap in PSRAM (device_lv_malloc.c): frees the 64KB internal builtin
+# pool — the reclaim that lets the BLE stack fit beside wifi.
+# CONFIG_LV_USE_BUILTIN_MALLOC is not set
+CONFIG_LV_USE_CUSTOM_MALLOC=y
