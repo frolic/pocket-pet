@@ -291,9 +291,12 @@ static void telemetry_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(TELEMETRY_PERIOD_MS));
         if (!tx_subscribed) continue;
         char event[192];
+        /* Bring-up target: a public echo endpoint, so the first end-to-end
+           relay proves itself with a real 200. Swaps to the pet API when
+           that exists. */
         snprintf(event, sizeof(event),
                  "{\"ev\":\"http\",\"p\":{\"method\":\"POST\","
-                 "\"url\":\"https://api.frolic.dev/pet/telemetry\","
+                 "\"url\":\"https://httpbin.org/post\","
                  "\"body\":{\"steps\":%lu,\"bat\":%d}}}",
                  (unsigned long)step_source_total(), battery_source_percent());
         send_json(event);
