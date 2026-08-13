@@ -41,15 +41,28 @@ what he does not accept is abandoning the problem.
   firmware, `rawfill`/`rawgrid`/`rawx`/`i2cscan` console commands,
   `tools/cycle_harness.py`, LVGL wedge detector in the heartbeat.
 
-## The open item: on-battery verification of light sleep
+## Battery: where things stand (2026-08-13 evening)
 
-**IN PROGRESS: Kevin unplugged the watch on the night of 2026-08-11/12 on
-build `330b5837` for the overnight drain test.** Morning checklist:
+- Overnight test on `330b5837` gave ~8-12h battery life. Sleep-stats
+  instrumentation was built in response (`sleepstats` console command,
+  NVS-persisted; `sleepstats reset` clears).
+- A 30-min instrumented battery session ACQUITTED the sleep loop:
+  entries=1, duty=96%, fuel gauge saw zero %% across 21 dark minutes
+  (bounds dark drain <3%/h). OTA windows (30-min cadence, ~15s radio)
+  are negligible. Verdict: the battery went to AWAKE hours — dominated
+  by `WIFI_PS_NONE` (~80-100mA whenever screen-on + connected).
+- Fix shipped in `f07593b0`: associate at full power, drop to
+  `WIFI_PS_MIN_MODEM` on GOT_IP (~10-20mA connected).
+- **Stats now accumulate passively through normal use** — no protocol
+  needed. At any charge, run `sleepstats` for the cumulative story.
+  Kevin deferred the next deliberate overnight check.
+- Watch-item, do not chase yet: sporadic `reason=2` (auth expire) on
+  join, reproduced with PS off during association (pre-existing, not the
+  PS change); bench sessions end at the 10s fade before the retry lands.
 
-1. Battery %: single-digit drop over ~8h = light sleep PROVEN. Large drop =
-   the loop likely never engaged or wakes too often — add NVS sleep-stats
-   instrumentation (slept minutes, wake counts, persisted each catch-up)
-   before theorizing.
+Original verification checklist (still to confirm when convenient):
+
+1. Overnight %% drop with the PS fix (expect single-digit).
 2. BOOT press → wake in ~¼s. PWR press → wake in ~½s (160ms poll + fade).
 3. Clock correct (tick catch-up + RTC), steps persisted and sane.
 4. Later, any walk: steps count while dark (40ms accel quanta).
