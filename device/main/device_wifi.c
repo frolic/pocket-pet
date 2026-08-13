@@ -284,6 +284,11 @@ static void station_event(void *arg, esp_event_base_t base, int32_t id, void *da
         station_ever_connected = true;
         connected = true;
         offline = false;
+        /* Connected: drop the modem to power-save. ~80-100mA becomes
+           ~10-20mA — the awake-hours drain lever (the old always-PS_NONE
+           was truce-era caution, same misdiagnosis family as landmine #4;
+           any real render cost now shows as flush retries, not silence). */
+        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
         if (validating_index >= 0) {
             set_u8("validating", 0);
             validating_index = -1;
@@ -382,7 +387,8 @@ static void station_start(void)
        own reasons (nothing to show / nothing mid-transfer in sleep). */
     ESP_ERROR_CHECK(esp_wifi_start());
     radio_active = true;
-    /* Modem power-save transitions can glitch the QSPI display pipeline. */
+    /* Associate at full power; modem power-save engages on GOT_IP (the
+       standard pattern — PS during the handshake risks flaky joins). */
     esp_wifi_set_ps(WIFI_PS_NONE);
 #ifdef FROLIC_DEBUG
     esp_log_level_set("wifi", ESP_LOG_DEBUG);
@@ -771,7 +777,7 @@ static void radio_policy_task(void *arg)
         printf("device_wifi: screen on — radio up\n");
         if (esp_wifi_start() != ESP_OK) continue;
         radio_active = true;
-        esp_wifi_set_ps(WIFI_PS_NONE);
+        esp_wifi_set_ps(WIFI_PS_NONE); /* full power to associate; PS on GOT_IP */
         if (!connect_best()) {
             /* Nothing reachable: radio down, offline icon, retry on the
                next screen-on session. */
