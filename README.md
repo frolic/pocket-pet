@@ -50,4 +50,3 @@ buffer is reused mid-DMA and the panel stripes/tears). Also: never touch
 GPIO13, and the battery keeps the panel powered so USB-unplug does not
 reset latched panel state.
 
-This repo is private: the PMD Pokémon sprites must not be published.

@@ -164,8 +164,7 @@ Sprite/HUD/font C arrays are generated at CMake configure time by
 files are gitignored, only sources + generators are tracked. Sprites emit a
 stable `pet_` prefix, so swapping character = point the `POKEMON` CMake var
 (sim) / `assets/raichu` path (device `main/CMakeLists.txt`) at a new folder.
-No code changes. Repo is **private** because the PMD Pokémon sprites must
-not be published; branding is generic "pocket pet."
+No code changes. Branding is generic "pocket pet."
 
 ## Light sleep (device_sleep.c) — how it works and why it's MANUAL
 
