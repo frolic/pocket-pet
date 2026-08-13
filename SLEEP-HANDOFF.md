@@ -1,8 +1,36 @@
-# Light-sleep session handoff (updated 2026-08-12, was 2026-08-11 19:45)
+# Session handoff (updated 2026-08-14, was 2026-08-11 19:45)
 
-Mission: **make light sleep work on this watch.** Read `CLAUDE.md` first
-(hardware landmines — note landmine #1 was rewritten after the flush saga
-was solved; the old "PSRAM draw buffer" rule is dead).
+Read `CLAUDE.md` first (hardware landmines — note landmine #1 was
+rewritten after the flush saga; the old "PSRAM draw buffer" rule is dead).
+
+## 2026-08-13/14: Leash end-to-end MILESTONE + next work items
+
+The BLE gateway (docs/ble-gateway-design.md) went from design to a
+working first relay in one session: NimBLE firmware (`device_leash.c`,
+advertising as leash-pika, INFO + framed TX/RX channel) + Expo dev build
+on Kevin's iPhone (leash/, installed via direct xcodebuild with
+-allowProvisioningUpdates; Swift fix for Xcode 26.3 persisted in
+leash/patches/). First connection: INFO read, framed telemetry event
+relayed to a real HTTP POST at iOS's worst-case mtu=23. Fitting BLE
+beside wifi took a three-step internal-RAM campaign (wifi/lwip, NimBLE
+host, and LVGL's 64KB pool all now in PSRAM) — heap is HEALTHIER than
+pre-BLE (50k/44k-min with both radios up).
+
+Next firmware session, in order:
+1. **BLE follows the screen** like wifi (advertise/connect only while
+   lit; `sleep_eligible` refuses while a central is connected) — the
+   first relay died when the watch dozed mid-session: manual light sleep
+   freezes the BLE controller (design-doc open question #1, confirmed).
+   Background relay via BT modem-sleep clocking is the later experiment.
+2. MTU: watch re-reads att_mtu per send (fine); app snapshots mtu at
+   connect (23, before iOS renegotiates ~185) — refresh it per send or
+   on the MTU-updated event.
+3. Retarget bring-up telemetry to httpbin.org (committed, NOT yet
+   flashed — watch was off USB) and swap to the real pet API when it
+   exists.
+4. `leash-validate` Mac scripts live in the session scratchpad if a
+   bench central is ever wanted (blocked on macOS TCC last time; the
+   phone app made it moot).
 
 ## Kevin's mandate — the operating rule
 
