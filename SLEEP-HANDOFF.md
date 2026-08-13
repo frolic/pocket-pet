@@ -31,6 +31,14 @@ Next firmware session, in order:
 4. `leash-validate` Mac scripts live in the session scratchpad if a
    bench central is ever wanted (blocked on macOS TCC last time; the
    phone app made it moot).
+5. **Expo-vs-native decision gate** (Kevin raised it): the background
+   soak test decides. If RN/Expo background BLE wakes prove unreliable
+   (JS runtime boot per wake; CoreBluetooth state restoration is
+   first-class only in native), port the app to Swift — the protocol
+   core is ~300 lines with the TS test suite as the spec, and all of
+   tonight's Apple signing ceremony transfers as-is. Until measured,
+   keep iterating on the working Expo build; invest nothing further in
+   Expo-specific machinery.
 
 ## Kevin's mandate — the operating rule
 
