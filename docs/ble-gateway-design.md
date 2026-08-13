@@ -1,6 +1,8 @@
 # Leash — device-initiated BLE gateway
 
-*Design doc, 2026-08-13. Status: proposed (no firmware or app code exists yet).*
+*Design doc v2, 2026-08-13. Status: proposed (no firmware or app code
+exists yet). v2 removes the manifest/routes layer: the device includes
+URLs directly, the phone is a dumb HTTPS proxy.*
 
 The watch talks to the internet through the phone over BLE, replacing wifi
 as the daily transport. One invariant governs everything:
@@ -11,6 +13,11 @@ as the daily transport. One invariant governs everything:
 > attention — which matches the radio physics: a sleeping watch has no
 > radio to demand attention from.
 
+And one job description:
+
+> **The watch makes HTTP calls. BLE is just the wire. The phone is just
+> the modem.**
+
 ## The pieces
 
 ```mermaid
@@ -20,48 +27,70 @@ flowchart LR
         LSH --> NIM[NimBLE peripheral]
     end
     subgraph phone["iPhone (Expo app)"]
-        BLE[ble-plx central] --> ENG[relay engine]
-        ENG --> KC[(keychain: tokens)]
+        BLE[ble-plx central] --> ENG[HTTPS relay]
+        ENG -.-> AL["host allowlist\n(user setting, optional)"]
     end
     subgraph cloud["your API"]
         IN[ingest endpoints]
         OUT[(outbox queue)]
     end
     NIM <-- "GATT: notify / write" --> BLE
-    ENG -- "POST telemetry, files" --> IN
-    ENG -- "GET inbox" --> OUT
+    ENG <-- "the requests the watch asked for" --> IN
+    ENG <-- " " --> OUT
 ```
 
-The phone app holds **no product logic**. It wakes when the watch speaks,
-does what the watch asks (using routes from the watch's own manifest),
-and goes back to sleep. New watch behavior never requires an app update.
+The phone app holds **no product logic and no configuration about the
+watch**. It executes HTTP requests the watch hands it, returns the
+responses, and goes back to sleep. New watch behavior never requires an
+app update.
 
 ## Who may say what
 
 ```mermaid
 flowchart TD
     W[watch] -- "1 · events (fire-and-forget)" --> P[phone]
-    W -- "2 · requests {id, method}" --> P
-    P -- "3 · responses {id, result} ONLY" --> W
-    P -- "webhooks / drains" --> S[server]
-    S -- "answers + queued outbox items" --> P
+    W -- "2 · requests {id, ...}" --> P
+    P -- "3 · responses {id, ...} ONLY" --> W
+    P <-- "plain HTTPS" --> S[server]
     style W stroke-width:3px
 ```
 
 A phone→watch write that carries no known request `id` is a protocol
 error and is dropped. There is no path for the server or phone to
-initiate anything — deleting APNs push infrastructure, the device-side
-pending-request table, and every unsolicited-message edge case.
+initiate anything — no push infrastructure, no device-side handler for
+unsolicited messages, no bidirectional-RPC edge cases.
+
+## Delivery guarantees (what BLE gives, what we add)
+
+What the radio itself promises — this shapes the whole envelope:
+
+| Layer | Guarantee |
+|---|---|
+| Link layer, live connection | Every packet ACKed + retransmitted, **strict ordering**, no silent loss — TCP-like. This covers notifications too, despite their "unacknowledged" name (that refers to the ATT layer, not the radio). |
+| Sender's local queue | Fail-fast: if the stack's buffer is full, the send returns an error — visible, not silent. |
+| **Across a disconnect** | **No guarantee.** Trailing in-flight data vanishes, and the sender does not learn which messages survived. Disconnects are common (range, interference, iOS reaping). |
+
+So the one problem the application layer owns is **resume across
+disconnects**, and every protocol rule below exists for it:
+
+- Requests carry **ids + timeouts** → a lost response is re-asked.
+- Every request is **idempotent** → re-asking is always safe.
+- Outbox items are **acked by item id** on the *next* drain → a lost
+  response never loses a message (at-least-once, dedup by id).
+- File transfers resume by **sha + offset**, and the watch deletes its
+  local copy only after the server's 2xx comes back → end-to-end
+  at-least-once for uploads.
+- Fire-and-forget events are the one place loss is accepted — used only
+  where the next event supersedes the last (telemetry).
 
 ## GATT layout
 
-One service, three characteristics. Everything conversational shares one
-duplex framed channel; the manifest is a plain read.
+One service, three characteristics, one duplex framed channel.
 
 | Characteristic | Props | Carries |
 |---|---|---|
-| `MANIFEST` | read | Device-authored JSON: identity, routes, protocol version |
-| `TX` | notify | Watch → phone frames (events, requests, file chunks) |
+| `INFO` | read | `{device_id, proto}` — lets the app pin its watch and version-gate before relaying |
+| `TX` | notify | Watch → phone frames (events, requests, chunk stream) |
 | `RX` | write | Phone → watch frames (responses, download chunks) |
 
 The watch controls the session at every layer: **advertising is the
@@ -109,44 +138,44 @@ stream :   reassembly lane (interleave bulk transfer with control chat)
 ```
 
 - **kind=JSON**: reassembled frames concatenate into one UTF-8 JSON doc.
-- **kind=binary**: raw chunk of an in-flight file transfer (no JSON tax
-  on audio).
+- **kind=binary**: raw chunk of an in-flight body (no JSON tax on audio).
 - Two streams are enough: `0` control, `1` bulk.
 
-## Envelope: three message shapes, one initiator
+## The protocol: one verb
 
-JSON-RPC-flavored, minus everything a single-initiator design doesn't
-need. The watch keeps one small table of its own outstanding requests
-(id → timeout); the phone answers statelessly.
+The watch speaks HTTP; the phone executes it. Two message shapes:
 
 ```json
-// event — fire-and-forget, no reply expected
-{ "ev": "telemetry", "data": { "steps": 4211, "bat": 87 } }
+// event — fire-and-forget HTTP; no reply, loss acceptable
+{ "ev": "http", "p": { "method": "POST",
+    "url": "https://api.frolic.dev/pet/telemetry",
+    "headers": { "authorization": "Bearer …" },
+    "body": { "steps": 4211, "bat": 87 } } }
 
-// request — watch asks, phone must answer this id
-{ "id": 7, "m": "inbox.drain", "p": { "max": 10 } }
+// request — same shape plus an id; phone MUST answer that id
+{ "id": 7, "m": "http", "p": { "method": "GET",
+    "url": "https://api.frolic.dev/pet/outbox?ack=41,42" } }
 
-// response — the only thing a phone may ever send unprompted-looking
-{ "id": 7, "ok": [ { "kind": "msg", "body": "..." } ] }
-{ "id": 7, "err": { "code": "http_502", "msg": "upstream down" } }
+// response — status + body, or a transport error
+{ "id": 7, "status": 200, "body": [ { "kind": "msg", "body": "…" } ] }
+{ "id": 7, "err": { "code": "offline", "msg": "phone has no internet" } }
 ```
 
-Rules that keep it boring: every request has a **timeout** (default 10s);
-every method is **idempotent** (re-asking is always safe — the outbox
-drain acks by item id, so a lost response never loses a message).
+Large bodies stream instead of inlining:
 
-## The verbs (v1: exactly four)
+```json
+// upload: body follows as binary chunks on stream 1
+{ "id": 9, "m": "http", "p": { "method": "POST",
+    "url": "https://api.frolic.dev/pet/uploads",
+    "body_stream": { "stream": 1, "size": 102400, "sha256": "ab12…" } } }
+```
 
-| Verb | Shape | Phone does |
-|---|---|---|
-| `telemetry` | event | POST to the manifest's telemetry route |
-| `inbox.drain` | request | GET outbox route, return items; watch acks item ids in the next drain |
-| `upload.begin / .end` | request | Open/close a staged file; on `.end`, verify sha and POST to upload route |
-| *(binary frames)* | stream 1 | Append chunks to the staged file, ack every K chunks |
+Auth lives on the device (NVS, same trust boundary as the stored wifi
+password). The phone adds nothing and knows nothing.
 
 ## Call stacks, visually
 
-### Boot of a session: connect, read manifest, drain
+### Session start: connect, identify, drain the outbox
 
 ```mermaid
 sequenceDiagram
@@ -155,13 +184,13 @@ sequenceDiagram
     participant S as server
     Note over W: screen on → advertise
     P->>W: connect + MTU negotiation
-    P->>W: read MANIFEST
-    W-->>P: {routes, device_id, proto:1}
-    W->>P: {id:1, m:"inbox.drain"}
-    P->>S: GET /outbox?device=…&ack=[]
-    S-->>P: [ {item 41}, {item 42} ]
-    P-->>W: {id:1, ok:[41,42]}
-    Note over W: next drain acks [41,42] → server deletes
+    P->>W: read INFO
+    W-->>P: {device_id, proto:1}
+    W->>P: {id:1, m:"http", p:{GET …/outbox?ack=[]}}
+    P->>S: GET /outbox
+    S-->>P: 200 [ {item 41}, {item 42} ]
+    P-->>W: {id:1, status:200, body:[41,42]}
+    Note over W: next drain's URL carries ack=41,42<br/>→ server deletes them (at-least-once)
 ```
 
 ### Telemetry: fire and forget
@@ -171,37 +200,36 @@ sequenceDiagram
     participant W as watch
     participant P as phone (may be backgrounded)
     participant S as server
-    W->>P: notify {ev:"telemetry", data:{steps,bat}}
+    W->>P: notify {ev:"http", p:{POST …/telemetry}}
     Note over P: iOS wakes app ~10s (bluetooth-central)
-    P->>S: POST /telemetry  (auth from keychain)
+    P->>S: POST /telemetry
     Note over W: no reply expected; loss is fine,<br/>next telemetry supersedes
 ```
 
-### Voice clip upload, with a mid-transfer connection drop
+### Voice clip upload, surviving a mid-transfer drop
 
 ```mermaid
 sequenceDiagram
     participant W as watch
     participant P as phone
     participant S as server
-    W->>P: {id:9, m:"upload.begin", p:{name,size,sha}}
-    P-->>W: {id:9, ok:{transfer:3, offset:0}}
+    W->>P: {id:9, m:"http", p:{POST …/uploads,<br/>body_stream:{size,sha256}}}
+    P-->>W: {id:9, cont:{offset:0}}
     loop chunks on stream 1
-        W->>P: binary frame (transfer 3)
-        P-->>W: ack every K chunks {t:3, have:bytes}
+        W->>P: binary frame
+        P-->>W: ack every K chunks {have:bytes}
     end
     Note over W,P: ✗ connection drops at 60%
     Note over W: screen still on → re-advertise
     P->>W: reconnect
-    W->>P: {id:10, m:"upload.begin", p:{name,size,sha}}
-    P-->>W: {id:10, ok:{transfer:3, offset:61440}}
-    Note over P: same sha → resume, not restart
+    W->>P: {id:10, m:"http", p:{POST …/uploads,<br/>body_stream:{size,sha256}}}
+    P-->>W: {id:10, cont:{offset:61440}}
+    Note over P: same sha256 in staging → resume, not restart
     W->>P: remaining chunks
-    W->>P: {id:11, m:"upload.end", p:{t:3}}
-    P->>P: verify sha
-    P->>S: POST /uploads (file)
+    P->>P: verify sha256
+    P->>S: POST /uploads (assembled file)
     S-->>P: 201
-    P-->>W: {id:11, ok:true}
+    P-->>W: {id:10, status:201}
     Note over W: only NOW delete the local copy
 ```
 
@@ -214,10 +242,10 @@ sequenceDiagram
     participant W as watch
     S->>S: enqueue item in outbox (that's all it can do)
     Note over S,W: …time passes; nobody can push…
-    W->>P: {id:12, m:"inbox.drain"}  (screen-on or N-min timer)
+    W->>P: {id:12, m:"http", p:{GET …/outbox}}  (screen-on or N-min timer)
     P->>S: GET /outbox
-    S-->>P: [item]
-    P-->>W: {id:12, ok:[item]}
+    S-->>P: 200 [item]
+    P-->>W: {id:12, status:200, body:[item]}
 ```
 
 Downstream latency is bounded by the watch's ask cadence — by design.
@@ -229,38 +257,32 @@ Downstream latency is bounded by the watch's ask cadence — by design.
 stateDiagram-v2
     [*] --> Idle
     Idle --> Offering: clip recorded (staged in PSRAM/flash)
-    Offering --> Sending: upload.begin ok (offset o)
+    Offering --> Sending: cont received (offset o)
     Sending --> Sending: chunk acks advance
     Sending --> Offering: connection lost (keep file)
-    Sending --> Verifying: upload.end sent
-    Verifying --> Idle: ok → delete local copy
-    Verifying --> Offering: err → retry later
+    Sending --> AwaitingStatus: all bytes sent
+    AwaitingStatus --> Idle: 2xx → delete local copy
+    AwaitingStatus --> Offering: err / timeout → retry later
     Offering --> Idle: gave up (file kept, retry next session)
 ```
 
-## The manifest
+## No manifest — and when one would earn its way back
 
-Authored in firmware, served over GATT, versioned with the protocol.
-The phone resolves `auth` names against its keychain — **the manifest is
-not secret** (it ships in a firmware binary); tokens never leave the
-phone.
+v1 deliberately has **no manifest, no routes, no phone-side config**.
+The device includes full URLs and its own auth header; the phone relays.
+What that choice trades, with open eyes:
 
-```json
-{
-  "proto": 1,
-  "device": "pikachu-01",
-  "routes": {
-    "telemetry": { "post": "https://api.frolic.dev/pet/telemetry", "auth": "frolic" },
-    "inbox":     { "get":  "https://api.frolic.dev/pet/outbox",    "auth": "frolic" },
-    "uploads":   { "post": "https://api.frolic.dev/pet/uploads",   "auth": "frolic" }
-  },
-  "hosts_allow": ["api.frolic.dev"]
-}
-```
+- **Secrets live on the device** (NVS) instead of the phone keychain —
+  the same trust boundary as the stored wifi password. Fine for a
+  personal device; revisit if this ever ships to strangers.
+- **The open-proxy rail moves to the phone's user**: if the app is ever
+  published generically, an app-side allowlist setting (owned by the
+  person whose phone is being used as a modem) gates which hosts a
+  device may reach. Nothing to build for v1.
 
-`hosts_allow` is the relay's safety rail: the engine refuses any route
-outside it, so a generic public version of the app can't be turned into
-an open proxy by a hostile device.
+A manifest earns its way back only if third-party devices need to
+declare capabilities to a generic app, or secrets must move off-device.
+Both are additive later; neither blocks anything now.
 
 ## Budgets and constraints
 
@@ -278,19 +300,19 @@ an open proxy by a hostile device.
 flowchart LR
     P0["P0 · wifi power-save A/B\n(may defer this whole track)"]
     P1["P1 · firmware GATT + framing\nvalidated with nRF Connect,\nzero app code"]
-    P2["P2 · Expo relay engine\n4 verbs, manifest-driven"]
-    P3["P3 · generalize?\npublish app, open manifest"]
+    P2["P2 · Expo relay app\none verb, ~small"]
+    P3["P3 · generalize?\npublish app + user allowlist"]
     P0 --> P1 --> P2 --> P3
 ```
 
 - **P0** — flip `WIFI_PS_NONE` → modem power-save (truce-era relic),
   measure with the AXP2101 fuel gauge. If wifi gets cheap enough, BLE
   waits.
-- **P1** — NimBLE peripheral + manifest + framed channel in firmware;
-  drive it entirely from nRF Connect. The watch side is done before any
-  app exists.
-- **P2** — Expo dev-build app (`react-native-ble-plx`), relay engine
-  with the four verbs, keychain auth, background mode.
+- **P1** — NimBLE peripheral + INFO + framed channel in firmware; drive
+  it entirely from nRF Connect. The watch side is done before any app
+  exists.
+- **P2** — Expo dev-build app (`react-native-ble-plx`): frame codec,
+  the `http` executor, staging for streamed bodies, background mode.
 - **P3** — only if wanted: the app was generic all along; open it up.
 
 ## Open questions
@@ -300,9 +322,15 @@ flowchart LR
    deliberate experiment (same rigor as the render harness).
 2. **Chunk size / ack window (K)** — tune on the bench with nRF Connect
    throughput tests before freezing the protocol.
-3. **Pairing/bonding** — v1 can rely on the manifest's allowlist + app
-   pinning by device id; decide whether BLE-level bonding is worth its
-   iOS UX friction.
+3. **Pairing/bonding** — connection needs NO pairing (any central may
+   connect to an open peripheral), so bring-up runs pairing-free with
+   nRF Connect. Before real auth tokens transit the link, mark the
+   channel characteristics encryption-required: first connect then shows
+   iOS's one-time pairing dialog ("Just Works" bonding), the link is
+   encrypted thereafter, strangers' phones can connect but read nothing,
+   and bonded auto-reconnect gets smoother. The watch's screen even
+   allows numeric-comparison pairing later if MITM resistance ever
+   matters.
 4. **Coexistence** — wifi and BLE share the 2.4GHz radio. v1: BLE
    replaces wifi in the screen-on slot. Running both is a measured
    experiment, not an assumption.
