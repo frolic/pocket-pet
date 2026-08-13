@@ -15,6 +15,7 @@
 #include "device_debug_console.h"
 #include "device_debug.h"
 #include "device_flush_gate.h"
+#include "device_sleep.h"
 #include "display_sleep.h"
 #include "device_wifi.h"
 #include "esp_http_client.h"
@@ -321,6 +322,10 @@ static void console_task(void *arg)
             int pace = 0;
             sscanf(line + 7, "%d %d", &height, &pace);
             raw_grid(height, pace);
+        } else if (strcmp(line, "sleepstats") == 0) {
+            device_sleep_stats_print();
+        } else if (strcmp(line, "sleepstats reset") == 0) {
+            device_sleep_stats_reset();
         } else if (strcmp(line, "i2cscan") == 0) {
             /* Definitive on-board sensor inventory (settles what the docs
                don't: ambient light sensor? battery-backed RTC?). */

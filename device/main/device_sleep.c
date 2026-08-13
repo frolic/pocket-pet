@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -14,6 +15,8 @@
 #include "device_wifi.h"
 #include "display_sleep.h"
 #include "power_button.h"
+#include "battery_source.h"
+#include "nvs.h"
 
 /*
  * Manual light sleep for the dark hours — the full-day-battery lever.
@@ -47,6 +50,72 @@
 #define CATCH_UP_MS 1000
 #define AWAKE_WINDOW_MS 10
 #define ENTRY_POLL_MS 500
+
+/*
+ * Sleep telemetry: the overnight drain test failed (~8-12%/h) and serial
+ * is dead unplugged, so the loop records what actually happened for later
+ * reading — dark-loop entries, slept time, wake causes, WHY eligibility
+ * was blocked while dozing, and the battery %% consumed per dark session.
+ * Persisted to NVS on every loop exit and every ~5min while dark; printed
+ * at boot and via the `sleepstats` console command.
+ */
+typedef struct {
+    uint32_t dark_entries;
+    uint32_t slept_ms;
+    uint32_t quanta;
+    uint32_t button_wakes;
+    uint32_t state_exits;
+    uint32_t blocked_vbus;  /* DOZING polls refused: vbus said plugged */
+    uint32_t blocked_radio; /* DOZING polls refused: radio still up */
+    uint32_t dark_battery_pct; /* cumulative %% consumed inside dark loops */
+    uint32_t dark_wall_ms;     /* cumulative wall time inside dark loops */
+} sleep_stats_t;
+
+static sleep_stats_t stats;
+
+static void stats_persist(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open("slpstat", NVS_READWRITE, &handle) != ESP_OK) return;
+    nvs_set_blob(handle, "v1", &stats, sizeof(stats));
+    nvs_commit(handle);
+    nvs_close(handle);
+}
+
+static void stats_restore(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open("slpstat", NVS_READONLY, &handle) != ESP_OK) return;
+    size_t size = sizeof(stats);
+    nvs_get_blob(handle, "v1", &stats, &size);
+    nvs_close(handle);
+}
+
+void device_sleep_stats_print(void)
+{
+    uint32_t dark_min = stats.dark_wall_ms / 60000;
+    uint32_t slept_min = stats.slept_ms / 60000;
+    printf("sleepstats: entries=%lu slept=%lumin dark=%lumin quanta=%lu "
+           "wakes(button=%lu state=%lu) blocked(vbus=%lu radio=%lu) "
+           "dark_drain=%lu%%\n",
+           (unsigned long)stats.dark_entries, (unsigned long)slept_min,
+           (unsigned long)dark_min, (unsigned long)stats.quanta,
+           (unsigned long)stats.button_wakes, (unsigned long)stats.state_exits,
+           (unsigned long)stats.blocked_vbus, (unsigned long)stats.blocked_radio,
+           (unsigned long)stats.dark_battery_pct);
+    if (dark_min > 0) {
+        printf("sleepstats: duty=%lu%% (slept/dark), drain=%lu%%/h while dark\n",
+               (unsigned long)(stats.slept_ms / (stats.dark_wall_ms / 100)),
+               (unsigned long)(stats.dark_battery_pct * 60 / (dark_min ? dark_min : 1)));
+    }
+}
+
+void device_sleep_stats_reset(void)
+{
+    memset(&stats, 0, sizeof(stats));
+    stats_persist();
+    printf("sleepstats: reset\n");
+}
 
 static void wake_display_cb(lv_timer_t *timer)
 {
@@ -83,7 +152,15 @@ static void sleep_task(void *arg)
     (void)arg;
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(ENTRY_POLL_MS));
-        if (!sleep_eligible()) continue;
+        if (!sleep_eligible()) {
+            /* While dozing, tally WHY sleep is refused — the counters
+               distinguish "loop never engaged" from "engaged, still hot". */
+            if (device_state_get() == DEVICE_STATE_DOZING) {
+                if (device_wifi_radio_active()) stats.blocked_radio++;
+                else if (axp2101_vbus_present()) stats.blocked_vbus++;
+            }
+            continue;
+        }
 
         /* Seal rendering: no flush can start once the gate is closed, so a
            light sleep can never freeze the panel bus mid-transfer. The close
@@ -106,6 +183,10 @@ static void sleep_task(void *arg)
 
         printf("device_sleep: dark loop begin\n");
         step_source_external_pacing(true);
+        stats.dark_entries++;
+        int entry_battery = battery_source_percent();
+        int64_t entry_wall_us = esp_timer_get_time();
+        int64_t last_persist_us = entry_wall_us;
         int64_t credit_us = 0;
         uint32_t quantum = 0;
         bool wake_display = false;
@@ -114,7 +195,10 @@ static void sleep_task(void *arg)
             esp_sleep_enable_timer_wakeup(QUANTUM_MS * 1000);
             int64_t before = esp_timer_get_time();
             esp_light_sleep_start();
-            credit_us += esp_timer_get_time() - before;
+            int64_t slept_us = esp_timer_get_time() - before;
+            credit_us += slept_us;
+            stats.slept_ms += (uint32_t)(slept_us / 1000);
+            stats.quanta++;
 
             /* Sample every wake: steps keep counting through the night.
                Doubles as the I2C quiesce point — it serializes behind any
@@ -136,11 +220,32 @@ static void sleep_task(void *arg)
                    which feed the task watchdog — gets to run. */
                 catch_up(&credit_us);
                 vTaskDelay(pdMS_TO_TICKS(AWAKE_WINDOW_MS));
+                if (esp_timer_get_time() - last_persist_us > 5LL * 60 * 1000000) {
+                    last_persist_us = esp_timer_get_time();
+                    int battery_now = battery_source_percent();
+                    if (entry_battery > 0 && battery_now > 0 &&
+                        battery_now < entry_battery) {
+                        stats.dark_battery_pct += entry_battery - battery_now;
+                        entry_battery = battery_now;
+                    }
+                    stats.dark_wall_ms +=
+                        (uint32_t)((esp_timer_get_time() - entry_wall_us) / 1000);
+                    entry_wall_us = esp_timer_get_time();
+                    stats_persist();
+                }
             }
         }
 
         catch_up(&credit_us);
         step_source_external_pacing(false);
+        if (wake_display) stats.button_wakes++;
+        else stats.state_exits++;
+        int exit_battery = battery_source_percent();
+        if (entry_battery > 0 && exit_battery > 0 && exit_battery < entry_battery) {
+            stats.dark_battery_pct += entry_battery - exit_battery;
+        }
+        stats.dark_wall_ms += (uint32_t)((esp_timer_get_time() - entry_wall_us) / 1000);
+        stats_persist();
         printf("device_sleep: dark loop end (%s)\n",
                wake_display ? "button wake" : "state/usb");
 
@@ -159,6 +264,8 @@ static void sleep_task(void *arg)
 
 void device_sleep_init(void)
 {
+    stats_restore();
+    device_sleep_stats_print();
     /* Above the LVGL/step tasks: wake handling preempts routine polls, and
        the loop only yields CPU at its own explicit points. */
     xTaskCreate(sleep_task, "sleep", 3072, NULL, 5, NULL);
