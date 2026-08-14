@@ -20,19 +20,21 @@ Measured latency (famping console command ↔ Familiar echo central):
 locked / post-SIGKILL state restoration, including 20ms streaming
 cadence — background relay is viable for voice.
 
+The relay engine is LIVE in the Swift app (FrameCodec / FrameReassembler
+/ RelayEngine / DeviceCentral): telemetry events POST for real, and the
+request/response path works end-to-end — the watch asks for London
+weather (open-meteo, `weather` console command + once-a-minute demo in
+famtel) and prints the temperature ~1.3s later. The app refreshes its
+write budget per send (the old MTU-snapshot bug is gone).
+
 Next firmware session, in order:
 1. **BLE follows the screen** like wifi (advertise/connect only while
    lit; `sleep_eligible` refuses while a central is connected) — the
    first relay died when the watch dozed mid-session: manual light sleep
    freezes the BLE controller (design-doc open question #1, confirmed).
    Background relay via BT modem-sleep clocking is the later experiment.
-2. MTU: watch re-reads att_mtu per send (fine); the app must refresh its
-   mtu per send or on the MTU-updated event (iOS renegotiates 23→~185
-   after connect).
-3. Port the relay engine (framing + HTTP execution) from the design doc
-   into the Familiar app — today it only echoes.
-4. Swap bring-up telemetry (httpbin.org) to the real pet API when it
-   exists.
+2. Swap bring-up telemetry (httpbin.org) and the weather demo to the
+   real pet API when it exists.
 
 ## Kevin's mandate — the operating rule
 

@@ -323,11 +323,13 @@ static void console_task(void *arg)
             int pace = 0;
             sscanf(line + 7, "%d %d", &height, &pace);
             raw_grid(height, pace);
-        } else if (strncmp(line, "famping", 9) == 0) {
+        } else if (strncmp(line, "famping", 7) == 0) {
             unsigned count = 200;
             unsigned interval = 100;
-            sscanf(line + 9, "%u %u", &count, &interval);
+            sscanf(line + 7, "%u %u", &count, &interval);
             device_familiar_ping(count, interval);
+        } else if (strcmp(line, "weather") == 0) {
+            device_familiar_weather();
         } else if (strcmp(line, "sleepstats") == 0) {
             device_sleep_stats_print();
         } else if (strcmp(line, "sleepstats reset") == 0) {

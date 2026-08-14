@@ -10,3 +10,7 @@ void device_familiar_init(void);
    expects the central to echo them, prints the RTT distribution over
    serial. Blocks the calling task for count*interval + 3s grace. */
 void device_familiar_ping(uint32_t count, uint32_t interval_ms);
+
+/* Request/response demo: ask the relay for London's current temperature
+   (open-meteo.com) and print the reading when the reply lands. */
+void device_familiar_weather(void);

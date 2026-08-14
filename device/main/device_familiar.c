@@ -148,6 +148,8 @@ static void send_json(const char *json)
 /* Runs on the familiar worker task ONLY (statics are safe): bounded,
    NUL-terminated parsing — arbitrary central input must never walk off
    a buffer (pocket-pet#1). */
+static volatile long weather_outstanding_id;
+
 static void handle_json_message(const uint8_t *bytes, size_t length)
 {
     printf("familiar: rx json (%u bytes)\n", (unsigned)length);
@@ -155,13 +157,29 @@ static void handle_json_message(const uint8_t *bytes, size_t length)
     static char text[REASSEMBLY_MAX + 1];
     memcpy(text, bytes, length);
     text[length] = '\0';
-    /* Echo envelope: find "id":N with a dumb scan (no JSON lib on this
+    /* Envelope scan: find "id":N with a dumb scan (no JSON lib on this
        path yet; the P2 watch client will own real parsing). */
     const char *id_key = strstr(text, "\"id\"");
     if (id_key == NULL) return; /* event or malformed: nothing owed */
     const char *colon = strchr(id_key + 4, ':');
     if (colon == NULL) return;
     long id = strtol(colon + 1, NULL, 10);
+    if (id != 0 && id == weather_outstanding_id) {
+        /* The relay answered our weather request: print the reading. */
+        weather_outstanding_id = 0;
+        /* Anchor to the "current" object: the sibling "current_units"
+           block also holds a temperature_2m, but as the string "°C". */
+        const char *current = strstr(text, "\"current\":");
+        const char *temperature =
+            current != NULL ? strstr(current, "\"temperature_2m\":") : NULL;
+        if (temperature != NULL) {
+            printf("familiar: weather London %.1fC\n",
+                   strtod(temperature + 17, NULL));
+        } else {
+            printf("familiar: weather reply without temperature: %s\n", text);
+        }
+        return;
+    }
     static char reply[REASSEMBLY_MAX + 64];
     int reply_length = snprintf(reply, sizeof(reply),
                                 "{\"id\":%ld,\"status\":599,\"body\":{\"echo\":%s}}",
@@ -327,7 +345,7 @@ static void start_advertising(void)
     struct ble_hs_adv_fields fields = {0};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.name = (const uint8_t *)"pika";
-    fields.name_len = 10;
+    fields.name_len = 4;
     fields.name_is_complete = 1;
     ble_gap_adv_set_fields(&fields);
     /* Service UUID goes in the scan response (128-bit doesn't share a
@@ -359,9 +377,28 @@ static void host_task(void *arg)
 }
 
 /* Real telemetry while subscribed: the P2 relay forwards these verbatim. */
+void device_familiar_weather(void)
+{
+    /* Demo of the request/response path: ask the relay for London weather
+       and print the temperature when the reply lands. */
+    static long next_id = 100;
+    weather_outstanding_id = ++next_id;
+    char request[256];
+    snprintf(request, sizeof(request),
+             "{\"id\":%ld,\"m\":\"http\",\"p\":{\"method\":\"GET\","
+             "\"url\":\"https://api.open-meteo.com/v1/forecast"
+             "?latitude=51.5072&longitude=-0.1276"
+             "&current=temperature_2m\"}}",
+             weather_outstanding_id);
+    printf("familiar: asking relay for weather (id=%ld)\n",
+           weather_outstanding_id);
+    send_json(request);
+}
+
 static void telemetry_task(void *arg)
 {
     (void)arg;
+    uint32_t tick = 0;
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(TELEMETRY_PERIOD_MS));
         if (!tx_subscribed) continue;
@@ -375,6 +412,8 @@ static void telemetry_task(void *arg)
                  "\"body\":{\"steps\":%lu,\"bat\":%d}}}",
                  (unsigned long)step_source_total(), battery_source_percent());
         send_json(event);
+        /* Once a minute, exercise the request/response path too. */
+        if (tick++ % 6 == 0) device_familiar_weather();
     }
 }
 
