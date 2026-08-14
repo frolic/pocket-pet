@@ -64,24 +64,29 @@ S3 caps at 80MHz; 40 was chosen for margin. Fine as-is.
 
 ## Boot, clock, and radio lifecycle
 
-The PCF85063 RTC (0x51, battery-backed) makes the clock honest ~1.8s into
-boot (`device_rtc_restore` in main); the pet scene boots live immediately
-with no sync banner. The "SETTING CLOCK" banner sync only runs when the
-RTC is invalid (first boot ever / battery pull / oscillator-stop) or when
-fresh portal credentials need validating. Every SNTP completion writes the
-RTC back.
+**The device is BLE-only.** Wifi (station, portal provisioning, SNTP,
+OTA) was removed 2026-08-15 after the transport comparison landed for
+BLE — the code lives in git history before that date if bulk transfer
+ever wants it back.
 
-**Radio follows the screen** (`radio_policy_task` in device_wifi.c): wifi
-up + connected while the watch face is on (future uploads; SNTP drift
-correction rides along), down when dark. The wifi fan icon shows the
-truth: hidden = radio down and all well, pulsing yellow = seeking, white =
-connected, red = offline or stranded (tap = portal). A failed connect goes
-quiet until the next screen-on session. Sync windows (dozing, OTA) and the
-portal own the radio themselves; `sleep_eligible` refuses to light-sleep
-until the policy has torn the radio down. The stuck-radio watchdog
-force-releases any banner sync stuck >60s (session clock — PWR presses
-can't defer it), and the heartbeat's LVGL wedge detector restarts a frozen
-pipeline outright.
+The PCF85063 RTC (0x51, battery-backed) makes the clock honest ~1.8s
+into boot (`device_rtc_restore` in main); the pet scene boots live
+immediately. With no network sync, the `time` console command is the
+only clock source after a true cold boot (battery pull); it writes the
+RTC back, so once set the clock survives reboots and reflashes.
+
+**BLE follows the screen** (`radio_policy_task` in device_familiar.c):
+advertising (as `pika`) and relay sessions while the face is lit or on
+USB power; when dark on battery the session is terminated and
+advertising stops so the manual sleep loop can engage — light sleep
+freezes the BLE controller, so `sleep_eligible` also refuses while a
+central is connected (belt and braces). The phone app's pending connect
+re-links within ~2s of the next screen-on. The heartbeat's LVGL wedge
+detector restarts a frozen pipeline outright.
+
+The Familiar relay (github.com/frolic/familiar) executes the device's
+HTTP intents; measured: ~230ms warm for a full device→phone→internet
+round trip, ~45ms RTT for the bare BLE hop.
 
 ## Debugging method that actually works here
 
@@ -149,8 +154,14 @@ regressions, harness for anything the diff can't explain.
 ## Build / flash
 
 - Device: `cd device && idf.py build && idf.py -p /dev/cu.usbmodem2101 flash`
-  (source `~/esp/esp-idf/export.sh` first). `FROLIC_DISABLE_WIFI=1` builds
-  the offline daily watch.
+  (source `~/esp/esp-idf/export.sh` first). `FROLIC_DISABLE_BLE=1` (with
+  `-B build_noble`) builds a radio-quiet bench firmware.
+- **The factory partition is 2MB and the app binary must fit it** — an
+  oversized image flashes "successfully", then the bootloader declares
+  factory unbootable and silently falls back to whatever stale build sits
+  in ota_1. If the device suddenly behaves years old (unknown console
+  commands, wrong states), check the boot log's "Loaded app from
+  partition" line first.
 - Sim: `cmake -B build -S . && cmake --build build && ./build/frolic_sim`.
 - **Always TaskStop any serial monitor before `idf.py flash`** — port
   conflict otherwise.

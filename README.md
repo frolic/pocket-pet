@@ -11,8 +11,8 @@ macOS); the same portable `app/` code runs on device.
 - `app/` — portable UI + game logic (pet FSM, watchface, step/game loop).
   Runs in both the sim and on device.
 - `sim/` — SDL LVGL simulator (fast iteration on Mac).
-- `device/` — ESP-IDF firmware (main app, wifi/OTA, power, drivers, vendored
-  Waveshare BSP).
+- `device/` — ESP-IDF firmware (main app, BLE relay client, power, drivers,
+  vendored Waveshare BSP).
 - `tools/` — asset generators (sprites/HUD/font → C arrays) and
   `watch_remote.py` (serial screenshots + synthetic taps).
 - `assets/<pokemon>/` — source PMD sprite sheets (the only sprite source in
@@ -33,7 +33,9 @@ cd device
 idf.py build
 idf.py -p /dev/cu.usbmodem2101 flash
 ```
-`FROLIC_DISABLE_WIFI=1` builds an offline-only watch (pet + steps, no radio).
+The watch is BLE-only: it reaches the internet through the
+[Familiar](https://github.com/frolic/familiar) relay app on a phone.
+`FROLIC_DISABLE_BLE=1` builds a radio-quiet bench firmware.
 
 ## Swapping the character
 

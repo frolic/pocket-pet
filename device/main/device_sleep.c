@@ -12,7 +12,7 @@
 #include "device_axp2101.h"
 #include "device_flush_gate.h"
 #include "device_step_source.h"
-#include "device_wifi.h"
+#include "device_familiar.h"
 #include "display_sleep.h"
 #include "power_button.h"
 #include "battery_source.h"
@@ -36,7 +36,7 @@
  * every 4th wake (~160ms latency), and wake instantly on BOOT via GPIO
  * low-level wakeup. Slept time is credited back to the FreeRTOS tick with
  * xTaskCatchUpTicks once a second, then a short awake window lets due tasks
- * (OTA scheduler, housekeeping watchdog, NVS persist, idle/TWDT) run.
+ * (housekeeping, NVS persist, idle/TWDT) run.
  *
  * Requires CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND=n: with it on, a startup
  * hook arms hardware sleep-sel isolation on every pad and the first sleep
@@ -66,7 +66,7 @@ typedef struct {
     uint32_t button_wakes;
     uint32_t state_exits;
     uint32_t blocked_vbus;  /* DOZING polls refused: vbus said plugged */
-    uint32_t blocked_radio; /* DOZING polls refused: radio still up */
+    uint32_t blocked_radio; /* DOZING polls refused: BLE session live */
     uint32_t dark_battery_pct; /* cumulative %% consumed inside dark loops */
     uint32_t dark_wall_ms;     /* cumulative wall time inside dark loops */
 } sleep_stats_t;
@@ -123,7 +123,7 @@ static void wake_display_cb(lv_timer_t *timer)
     display_sleep_wake();
 }
 
-/* The wake render must run on the LVGL task (same pattern as the portal). */
+/* The wake render must run on the LVGL task. */
 static void schedule_display_wake(void)
 {
     bsp_display_lock(0);
@@ -134,10 +134,12 @@ static void schedule_display_wake(void)
 
 static bool sleep_eligible(void)
 {
-    /* radio_active check: the screen-follows-radio policy shuts wifi down
-       shortly after DOZING lands; never light-sleep across that teardown. */
+    /* BLE check: manual light sleep freezes the BLE controller, so a live
+       session (central connected) blocks sleep; the BLE-follows-the-screen
+       policy tears the session down shortly after DOZING lands. */
     return device_state_get() == DEVICE_STATE_DOZING &&
-           !device_wifi_radio_active() && !axp2101_vbus_present();
+           !device_familiar_central_connected() &&
+           !axp2101_vbus_present();
 }
 
 static void catch_up(int64_t *credit_us)
@@ -156,7 +158,7 @@ static void sleep_task(void *arg)
             /* While dozing, tally WHY sleep is refused — the counters
                distinguish "loop never engaged" from "engaged, still hot". */
             if (device_state_get() == DEVICE_STATE_DOZING) {
-                if (device_wifi_radio_active()) stats.blocked_radio++;
+                if (device_familiar_central_connected()) stats.blocked_radio++;
                 else if (axp2101_vbus_present()) stats.blocked_vbus++;
             }
             continue;
@@ -167,12 +169,8 @@ static void sleep_task(void *arg)
            handshake renders + drains via the LVGL task first. */
         device_flush_gate_close();
         if (!sleep_eligible()) {
-            /* Lost the race (woke / radio window / USB): hand the gate back
-               unless a radio state owns it now. */
-            if (device_state_get() == DEVICE_STATE_DOZING ||
-                device_state_get() == DEVICE_STATE_ACTIVE) {
-                device_flush_gate_open();
-            }
+            /* Lost the race (woke / BLE session / USB): hand the gate back. */
+            device_flush_gate_open();
             continue;
         }
 
@@ -249,15 +247,8 @@ static void sleep_task(void *arg)
         printf("device_sleep: dark loop end (%s)\n",
                wake_display ? "button wake" : "state/usb");
 
-        /* Gate handback: radio states (SYNCING/PORTAL) close the gate on
-           their own behalf and must keep it — even for a button wake that
-           raced a window opening (the wake then lands as SYNC_VISIBLE over
-           the frozen scene, same as any mid-window wake). Non-radio exits
-           reopen BEFORE the wake frame renders. */
-        device_state_t state = device_state_get();
-        if (state == DEVICE_STATE_DOZING || state == DEVICE_STATE_ACTIVE) {
-            device_flush_gate_open();
-        }
+        /* Reopen the gate BEFORE the wake frame renders. */
+        device_flush_gate_open();
         if (wake_display) schedule_display_wake();
     }
 }

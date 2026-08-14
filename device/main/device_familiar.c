@@ -15,6 +15,8 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "device_familiar.h"
+#include "device_state.h"
+#include "device_axp2101.h"
 #include "step_source.h"
 #include "battery_source.h"
 
@@ -150,6 +152,7 @@ static void send_json(const char *json)
    a buffer (pocket-pet#1). */
 static volatile long weather_outstanding_id;
 static volatile int64_t weather_sent_us;
+static volatile bool radio_wanted = true; /* boot advertises via on_sync */
 
 static void handle_json_message(const uint8_t *bytes, size_t length)
 {
@@ -333,7 +336,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         connection_handle = BLE_HS_CONN_HANDLE_NONE;
         tx_subscribed = false;
         reassembly_open = false;
-        start_advertising();
+        if (radio_wanted) start_advertising();
         return 0;
     case BLE_GAP_EVENT_SUBSCRIBE:
         if (event->subscribe.attr_handle == tx_value_handle) {
@@ -390,6 +393,11 @@ static void host_task(void *arg)
 }
 
 /* Real telemetry while subscribed: the P2 relay forwards these verbatim. */
+bool device_familiar_central_connected(void)
+{
+    return connection_handle != BLE_HS_CONN_HANDLE_NONE;
+}
+
 void device_familiar_weather(void)
 {
     /* Demo of the request/response path: ask the relay for London weather
@@ -493,6 +501,34 @@ void device_familiar_ping(uint32_t count, uint32_t interval_ms)
     printf("\n");
 }
 
+/* BLE follows the screen (same policy as wifi had): advertise and hold
+   connections while the face is lit or on USB power; when dark on battery,
+   terminate the session and stop advertising so the manual light-sleep
+   loop can engage (it freezes the BLE controller — a live session and
+   sleep are mutually exclusive). The phone's pending connect re-links
+   within a couple seconds of the next screen-on. */
+static void radio_policy_task(void *arg)
+{
+    (void)arg;
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        bool want = device_state_get() == DEVICE_STATE_ACTIVE ||
+                    axp2101_vbus_present();
+        if (want == radio_wanted) continue;
+        radio_wanted = want;
+        if (want) {
+            start_advertising();
+            printf("familiar: screen on — advertising\n");
+        } else {
+            if (connection_handle != BLE_HS_CONN_HANDLE_NONE) {
+                ble_gap_terminate(connection_handle, BLE_ERR_REM_USER_CONN_TERM);
+            }
+            ble_gap_adv_stop();
+            printf("familiar: dark on battery — BLE down\n");
+        }
+    }
+}
+
 void device_familiar_init(void)
 {
     esp_err_t err = nimble_port_init();
@@ -510,5 +546,6 @@ void device_familiar_init(void)
     nimble_port_freertos_init(host_task);
     xTaskCreate(worker_task, "famwrk", 4096, NULL, 4, NULL);
     xTaskCreate(telemetry_task, "famtel", 3072, NULL, 3, NULL);
+    xTaskCreate(radio_policy_task, "famradio", 3072, NULL, 3, NULL);
     printf("familiar: BLE peripheral up\n");
 }

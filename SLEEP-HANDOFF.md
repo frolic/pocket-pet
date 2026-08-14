@@ -1,4 +1,4 @@
-# Session handoff (updated 2026-08-14, was 2026-08-11 19:45)
+# Session handoff (updated 2026-08-15)
 
 Read `CLAUDE.md` first (hardware landmines — note landmine #1 was
 rewritten after the flush saga; the old "PSRAM draw buffer" rule is dead).
@@ -24,17 +24,25 @@ The relay engine is LIVE in the Swift app (FrameCodec / FrameReassembler
 / RelayEngine / DeviceCentral): telemetry events POST for real, and the
 request/response path works end-to-end — the watch asks for London
 weather (open-meteo, `weather` console command + once-a-minute demo in
-famtel) and prints the temperature ~1.3s later. The app refreshes its
-write budget per send (the old MTU-snapshot bug is gone).
+famtel) and prints the temperature with an RTT decomposition (total =
+phone http + ble/os). Measured: ~230ms warm via the relay vs 32ms warm /
+552ms cold-TLS direct over wifi — and wifi could not open TCP at all
+while a BLE central was connected (2.4GHz coexistence).
 
-Next firmware session, in order:
-1. **BLE follows the screen** like wifi (advertise/connect only while
-   lit; `sleep_eligible` refuses while a central is connected) — the
-   first relay died when the watch dozed mid-session: manual light sleep
-   freezes the BLE controller (design-doc open question #1, confirmed).
-   Background relay via BT modem-sleep clocking is the later experiment.
-2. Swap bring-up telemetry (httpbin.org) and the weather demo to the
+**2026-08-15: the watch went BLE-only.** Kevin picked BLE as the sole
+transport; wifi/OTA/portal/SNTP were fully removed (git history before
+this date has them). The state machine is two states (ACTIVE/DOZING),
+BLE follows the screen (down when dark on battery, held up on USB), and
+`sleep_eligible` refuses while a central is connected — the doze-kills-
+the-session problem is closed. Binary shrank 667KB (fits factory with
+689KB headroom); free heap roughly doubled (~145k).
+
+Next firmware session:
+1. Swap bring-up telemetry (httpbin.org) and the weather demo to the
    real pet API when it exists.
+2. On-battery check of the new policy: dark → "familiar: dark on
+   battery — BLE down" → sleepstats duty high; screen-on → phone
+   re-links ~2s.
 
 ## Kevin's mandate — the operating rule
 
@@ -99,10 +107,10 @@ Original verification checklist (still to confirm when convenient):
 3. Clock correct (tick catch-up + RTC), steps persisted and sane.
 4. Later, any walk: steps count while dark (40ms accel quanta).
 
-Watch out for: heap min is ~29k since the draw buffer moved internal —
-if OOM symptoms appear under wifi load, the draw buffer height
+Watch out for: the draw buffer lives in internal RAM — if OOM symptoms
+ever appear, the draw buffer height
 (`CONFIG_BSP_DISPLAY_LVGL_BUF_HEIGHT`/`BSP_LCD_RGB_BOUNCE_BUFFER_HEIGHT`)
-is the sizing lever. A latched-panel state still survives reboots (landmine
+is the sizing lever (BLE-only heap is ~145k free, so there is slack). A latched-panel state still survives reboots (landmine
 #3): full 8-10s PWR hold is the reset.
 
 ## Practical notes
@@ -111,7 +119,8 @@ is the sizing lever. A latched-panel state still survives reboots (landmine
   idf.py -p /dev/cu.usbmodem2101 flash`. ALWAYS cd with the absolute
   device/ path (cwd drift has polluted build dirs three times).
 - Serial heartbeat every 2s; console: `snap`, `wake`, `sleep`, `tap X Y`,
-  `time`, `portal`, `portalx`, `rawfill`, `rawgrid`, `rawx`.
+  `time` (also stores the RTC), `sleepstats`, `famping`, `weather`,
+  `rawfill`, `rawgrid`, `rawx`, `i2cscan`.
 - Commit and push to main (origin = github.com/frolic/pocket-raichu,
   private) as you go. History note: commit `1e046a7` accidentally contains
   ~12k build-artifact files (untracked again in `4b38ae5a`); Kevin may

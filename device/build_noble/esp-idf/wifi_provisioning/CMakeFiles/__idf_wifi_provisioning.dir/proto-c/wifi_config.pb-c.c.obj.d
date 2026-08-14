@@ -1,0 +1,37 @@
+esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/proto-c/wifi_config.pb-c.c.obj: \
+ /Users/kevin/esp/esp-idf/components/wifi_provisioning/proto-c/wifi_config.pb-c.c \
+ /Users/kevin/esp/esp-idf/components/wifi_provisioning/proto-c/wifi_config.pb-c.h \
+ /Users/kevin/esp/esp-idf/components/protobuf-c/protobuf-c/protobuf-c/protobuf-c.h \
+ /Users/kevin/esp/esp-idf/components/newlib/platform_include/assert.h \
+ /Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/build_noble/config/sdkconfig.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/stdlib.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/machine/ieeefp.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/_ansi.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/newlib.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/_newlib_version.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/config.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/features.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/14.2.0/include/stddef.h \
+ /Users/kevin/esp/esp-idf/components/newlib/platform_include/sys/reent.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/reent.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/_ansi.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/_types.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/machine/_types.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/machine/_default_types.h \
+ /Users/kevin/esp/esp-idf/components/newlib/platform_include/sys/lock.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/lock.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/cdefs.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/machine/stdlib.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/alloca.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/_locale.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/14.2.0/include/stdint.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/stdint.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/_intsup.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/_stdint.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/assert.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/14.2.0/include/limits.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/14.2.0/include/syslimits.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/limits.h \
+ /Users/kevin/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/xtensa-esp-elf/include/sys/syslimits.h \
+ /Users/kevin/esp/esp-idf/components/protocomm/proto-c/constants.pb-c.h \
+ /Users/kevin/esp/esp-idf/components/wifi_provisioning/proto-c/wifi_constants.pb-c.h

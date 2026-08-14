@@ -10,8 +10,6 @@
 #include "bsp/display.h"
 #include "device_debug.h"
 #include "device_familiar.h"
-#include "device_wifi.h"
-#include "device_ota.h"
 #include "device_power.h"
 #include "device_rtc.h"
 #include "device_sleep.h"
@@ -30,26 +28,6 @@ static void lvgl_liveness_tick(lv_timer_t *timer)
     LV_UNUSED(timer);
     device_debug_note_lvgl_alive();
 }
-
-#ifndef FROLIC_DISABLE_WIFI
-/* Radio status onto the watchface: red = radio up but nothing established
-   (or offline with the radio down), pulsing yellow = seeking, white =
-   connected. Runs on the LVGL task, so no display lock needed. */
-static void wifi_icon_tick(lv_timer_t *timer)
-{
-    LV_UNUSED(timer);
-    watchface_wifi_state_t state;
-    if (device_wifi_radio_active()) {
-        if (device_wifi_is_connected()) state = WATCHFACE_WIFI_CONNECTED;
-        else if (device_wifi_in_portal()) state = WATCHFACE_WIFI_STRANDED;
-        else state = WATCHFACE_WIFI_CONNECTING;
-    } else {
-        state = device_wifi_is_offline() ? WATCHFACE_WIFI_OFFLINE
-                                         : WATCHFACE_WIFI_HIDDEN;
-    }
-    watchface_set_wifi(state);
-}
-#endif
 
 static void display_dim(uint8_t brightness_percent)
 {
@@ -74,17 +52,14 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
 
-    /* LVGL on core 1, away from the wifi stack on core 0.
+    /* LVGL on core 1, away from the radio stack on core 0.
 
-       Internal-DMA draw buffer, and this is now safe ON PURPOSE: the
-       vendored BSP flush waits for real SPI completion (trans-done), so the
-       buffer is never reused mid-DMA — which was the actual cause of the
-       historic "internal buffer stripes the panel" rule. PSRAM only ever
-       looked clean because spi_master bounce-copied it through a contiguous
-       internal DMA alloc per flush, and THAT alloc failing under wifi heap
-       fragmentation (ESP_ERR_NO_MEM) was the entire flush-failure storm.
-       Characterized end-to-end by the FROLIC_RENDER_TEST harness:
-       PSRAM buffer under wifi = 100% flush failures; internal = zero. */
+       Internal-DMA draw buffer, safe ON PURPOSE: the vendored BSP flush
+       waits for real SPI completion (trans-done), so the buffer is never
+       reused mid-DMA. A PSRAM buffer would bounce-copy through a per-flush
+       contiguous internal DMA alloc, which fails under radio heap pressure
+       (the historic flush-failure storm — see CLAUDE.md landmine #1,
+       characterized by the FROLIC_RENDER_TEST harness). */
     bsp_display_cfg_t display_config = {
         .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
         .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,
@@ -104,31 +79,20 @@ void app_main(void)
     lv_timer_create(lvgl_liveness_tick, 500, NULL);
     display_sleep_set_dim_cb(display_dim);
     display_sleep_set_state_cb(device_state_report_display);
-#ifndef FROLIC_DISABLE_WIFI
-    watchface_set_wifi_tap_cb(device_wifi_request_portal);
-    lv_timer_create(wifi_icon_tick, 500, NULL);
-#endif
     bsp_display_unlock();
 
-    /* London time regardless of wifi (SNTP normally sets this up). */
     setenv("TZ", "GMT0BST,M3.5.0/1,M10.5.0", 1);
     tzset();
     /* Battery-backed RTC: an honest clock from second one on every boot
-       where the chip kept power — the wifi boot sync then skips itself. */
+       where the chip kept power. First boot ever (or battery pull) needs
+       one `time` console command; the RTC holds it from there. */
     device_rtc_restore();
 
     device_power_init();
     device_state_init();
     device_sleep_init();
     device_debug_console_start();
-#ifndef FROLIC_DISABLE_WIFI
-    device_wifi_start();
-    device_ota_start();
-#endif
-    /* After wifi: its core structures demand internal RAM ("alloc pp wdev
-       funcs" fails otherwise); the BLE host lives in PSRAM and can wait.
-       FROLIC_DISABLE_BLE builds a BLE-quiet bench firmware (e.g. to measure
-       wifi without 2.4GHz coexistence). */
+    /* FROLIC_DISABLE_BLE builds a radio-quiet bench firmware. */
 #ifndef FROLIC_DISABLE_BLE
     device_familiar_init();
 #endif

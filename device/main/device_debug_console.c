@@ -13,15 +13,12 @@
 #include "esp_lcd_panel_ops.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
 #include "device_debug_console.h"
+#include "device_rtc.h"
 #include "device_debug.h"
 #include "device_flush_gate.h"
 #include "device_familiar.h"
 #include "device_sleep.h"
 #include "display_sleep.h"
-#include "device_wifi.h"
-#include "esp_http_client.h"
-#include "esp_crt_bundle.h"
-#include "esp_timer.h"
 
 /*
  * Line-based debug console on the USB serial for remote-driving the watch:
@@ -57,66 +54,6 @@ static void synthetic_read(lv_indev_t *indev, lv_indev_data_t *data)
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
-}
-
-/* Bench probe: the BLE-relay weather fetch, but direct over wifi — same
-   endpoint, phase-timed (connect = DNS+TCP+TLS, fetch = request+body),
-   one cold round then one keep-alive warm round. */
-static bool weather_wifi(void)
-{
-    bool warm_done = false;
-    if (!device_wifi_is_connected()) {
-        printf("weatherw: wifi not connected\n");
-        return false;
-    }
-    esp_http_client_config_t config = {
-        .url = "https://api.open-meteo.com/v1/forecast"
-               "?latitude=51.5072&longitude=-0.1276&current=temperature_2m",
-        .timeout_ms = 10000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .keep_alive_enable = true,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) {
-        printf("weatherw: init failed\n");
-        return false;
-    }
-    for (int round = 0; round < 2; round++) {
-        int64_t start = esp_timer_get_time();
-        esp_err_t err = esp_http_client_open(client, 0);
-        if (err != ESP_OK) {
-            printf("weatherw: open failed (%s)\n", esp_err_to_name(err));
-            break;
-        }
-        int64_t connected = esp_timer_get_time();
-        esp_http_client_fetch_headers(client);
-        static char body[1024];
-        int total = 0;
-        while (total < (int)sizeof(body) - 1) {
-            int got = esp_http_client_read(client, body + total,
-                                           sizeof(body) - 1 - total);
-            if (got <= 0) break;
-            total += got;
-        }
-        body[total] = '\0';
-        int64_t done = esp_timer_get_time();
-        const char *current = strstr(body, "\"current\":");
-        const char *temperature =
-            current != NULL ? strstr(current, "\"temperature_2m\":") : NULL;
-        printf("weatherw[%s]: %.1fC rtt %.1fms = connect %.1f + fetch %.1f "
-               "(status %d, %dB)\n",
-               round == 0 ? "cold" : "warm",
-               temperature != NULL ? strtod(temperature + 17, NULL) : -99.0,
-               (done - start) / 1000.0,
-               (connected - start) / 1000.0,
-               (done - connected) / 1000.0,
-               esp_http_client_get_status_code(client), total);
-        if (round == 1 && esp_http_client_get_status_code(client) == 200) {
-            warm_done = true;
-        }
-    }
-    esp_http_client_cleanup(client);
-    return warm_done;
 }
 
 static void wake_cb(lv_timer_t *timer)
@@ -219,12 +156,6 @@ static uint16_t *raw_buf;
 
 static bool raw_ready(void)
 {
-    if (device_wifi_radio_active()) {
-        /* Raw draws on the panel bus during radio would recreate the exact
-           corruption the flush gate exists to prevent. */
-        printf("raw: refused, radio active\n");
-        return false;
-    }
     if (raw_buf == NULL) {
         raw_buf = heap_caps_malloc(SNAP_WIDTH * SNAP_HEIGHT * 2, MALLOC_CAP_SPIRAM);
         if (raw_buf == NULL) {
@@ -305,27 +236,6 @@ static void raw_grid(int strip_height, int pace_ms)
            index, failures, strip_height, pace_ms);
 }
 
-/* Bench one-shot: run the wifi weather probe as soon as wifi first
-   connects, so the BLE-vs-wifi comparison needs no console interaction. */
-static void weather_wifi_once_task(void *arg)
-{
-    (void)arg;
-    printf("weatherw: probe task up, waiting for wifi\n");
-    /* Keep the screen awake so the radio-follows-screen policy holds
-       wifi up through connect + probe; retry across radio sessions. */
-    for (int attempt = 0; attempt < 4; attempt++) {
-        for (int i = 0; i < 120 && !device_wifi_is_connected(); i++) {
-            if (i % 6 == 0) run_in_lvgl(wake_cb);
-            vTaskDelay(pdMS_TO_TICKS(500));
-        }
-        if (!device_wifi_is_connected()) continue;
-        run_in_lvgl(wake_cb);
-        if (weather_wifi()) break;
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
-    vTaskDelete(NULL);
-}
-
 static void console_task(void *arg)
 {
     (void)arg;
@@ -337,11 +247,6 @@ static void console_task(void *arg)
            existed, so getchar never delivers. */
         if (usb_serial_jtag_read_bytes(&byte, 1, pdMS_TO_TICKS(100)) != 1) {
             continue;
-        }
-        static bool first_byte = true;
-        if (first_byte) {
-            first_byte = false;
-            printf("console: rx alive (first byte 0x%02X)\n", byte);
         }
         int ch = byte;
         if (ch != '\n' && ch != '\r') {
@@ -361,33 +266,6 @@ static void console_task(void *arg)
         } else if (strcmp(line, "sleep") == 0) {
             run_in_lvgl(sleep_cb);
             printf("sleep: ok\n");
-        } else if (strcmp(line, "portal") == 0) {
-            device_wifi_request_portal();
-            printf("portal: requested\n");
-        } else if (strcmp(line, "portaltest") == 0) {
-            /* Simulate a client: fetch our own captive page over lwip. */
-            esp_http_client_config_t http = {
-                .url = "http://192.168.4.1/",
-                .timeout_ms = 5000,
-            };
-            esp_http_client_handle_t client = esp_http_client_init(&http);
-            if (client != NULL) {
-                esp_err_t err = esp_http_client_open(client, 0);
-                if (err == ESP_OK) {
-                    int64_t length = esp_http_client_fetch_headers(client);
-                    char peek[64] = {0};
-                    esp_http_client_read(client, peek, sizeof(peek) - 1);
-                    printf("portaltest: status=%d length=%lld first='%s'\n",
-                           esp_http_client_get_status_code(client),
-                           (long long)length, peek);
-                } else {
-                    printf("portaltest: open failed\n");
-                }
-                esp_http_client_cleanup(client);
-            }
-        } else if (strcmp(line, "portalx") == 0) {
-            device_wifi_portal_exit();
-            printf("portal: exited\n");
         } else if (strncmp(line, "time ", 5) == 0) {
             int year, month, day, hour, minute;
             if (sscanf(line + 5, "%d %d %d %d %d", &year, &month, &day, &hour, &minute) == 5) {
@@ -400,7 +278,10 @@ static void console_task(void *arg)
                 };
                 struct timeval now = {.tv_sec = mktime(&local)};
                 settimeofday(&now, NULL);
-                printf("time: set\n");
+                /* Persist to the battery-backed RTC: with no network sync,
+                   this command is the only clock source after a cold boot. */
+                printf("time: set, rtc %s\n",
+                       device_rtc_store() ? "stored" : "store FAILED");
             }
         } else if (strncmp(line, "rawfill", 7) == 0) {
             int mode = 2;
@@ -418,8 +299,6 @@ static void console_task(void *arg)
             device_familiar_ping(count, interval);
         } else if (strcmp(line, "weather") == 0) {
             device_familiar_weather();
-        } else if (strcmp(line, "weatherw") == 0) {
-            weather_wifi();
         } else if (strcmp(line, "sleepstats") == 0) {
             device_sleep_stats_print();
         } else if (strcmp(line, "sleepstats reset") == 0) {
@@ -462,8 +341,7 @@ void device_debug_console_start(void)
 {
     usb_serial_jtag_driver_config_t config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
     config.tx_buffer_size = 4096;
-    esp_err_t install = usb_serial_jtag_driver_install(&config);
-    printf("debug console driver install=%s\n", esp_err_to_name(install));
+    usb_serial_jtag_driver_install(&config);
 
     bsp_display_lock(0);
     lv_indev_t *indev = lv_indev_create();
@@ -472,7 +350,5 @@ void device_debug_console_start(void)
     bsp_display_unlock();
 
     xTaskCreate(console_task, "dbgcon", 6144, NULL, 3, NULL);
-    /* 16KB stack: the probe runs a TLS handshake on this task. */
-    xTaskCreate(weather_wifi_once_task, "weatherw1", 16384, NULL, 3, NULL);
     printf("debug console ready (snap / tap X Y)\n");
 }

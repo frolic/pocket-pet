@@ -10,7 +10,7 @@
  * The radio/display invariant, enforced mechanically: closing the gate
  * disables LVGL invalidation — no invalidation means no render, no render
  * means no flush, so nothing can touch the panel while the radio runs.
- * The close/open calls are fused to esp_wifi_start/stop inside device_wifi.
+ * Closed by the sleep loop before light sleep and by raw-draw diagnostics.
  * Closing is deterministic: the LVGL task renders and flushes everything
  * pending (banner, setup modal), signals completion, and only then is the
  * pipeline sealed — a timed grace truncated slow first paints mid-frame.

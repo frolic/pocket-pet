@@ -14,3 +14,8 @@ void device_familiar_ping(uint32_t count, uint32_t interval_ms);
 /* Request/response demo: ask the relay for London's current temperature
    (open-meteo.com) and print the reading when the reply lands. */
 void device_familiar_weather(void);
+
+/* True while a central holds the BLE connection. Light sleep must refuse
+   while true: manual esp_light_sleep_start freezes the BLE controller and
+   kills the session. */
+bool device_familiar_central_connected(void);

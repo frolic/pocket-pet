@@ -13,8 +13,6 @@ idf_component_register(
         "render_test_main.c"
         "device_familiar.c"
         "device_lv_malloc.c"
-        "device_wifi.c"
-        "device_ota.c"
         "device_power.c"
         "device_rtc.c"
         "device_sleep.c"
@@ -37,7 +35,7 @@ idf_component_register(
         "../../app/sprites/hud_box.c"
         "../../app/sprites/pixel_font.c"
     INCLUDE_DIRS "." "../../app"
-    REQUIRES esp32_s3_touch_amoled_2_06 driver esp_timer mbedtls esp_wifi esp_netif esp_event esp_http_server esp_http_client esp_https_ota app_update nvs_flash lwip bt
+    REQUIRES esp32_s3_touch_amoled_2_06 driver esp_timer mbedtls nvs_flash bt
 )
 
 # Force the custom LVGL allocator objects into the link: lvgl's archive
@@ -49,10 +47,6 @@ if(DEFINED ENV{FROLIC_RENDER_TEST})
     target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_RENDER_TEST=$ENV{FROLIC_RENDER_TEST})
 endif()
 
-if(DEFINED ENV{FROLIC_DISABLE_WIFI})
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_DISABLE_WIFI=1)
-endif()
-
 if(DEFINED ENV{FROLIC_DISABLE_BLE})
     target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_DISABLE_BLE=1)
 endif()
@@ -61,10 +55,3 @@ if(DEFINED ENV{FROLIC_DEBUG})
     target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_DEBUG=1)
 endif()
 
-if(DEFINED ENV{FROLIC_OTA_URL})
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_OTA_URL="$ENV{FROLIC_OTA_URL}")
-endif()
-
-if(DEFINED ENV{FROLIC_OTA_FAST})
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE FROLIC_OTA_FAST=1)
-endif()

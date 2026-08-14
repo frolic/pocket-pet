@@ -1,0 +1,6 @@
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/device_step_source.c:339:13: warning: 'flight_console_task' defined but not used [-Wunused-function]
+  339 | static void flight_console_task(void *arg)
+      |             ^~~~~~~~~~~~~~~~~~~
+/Users/kevin/Projects/frolic/pocket-pikachu/.claude/worktrees/sleep-handoff-docs-d67e58/device/main/device_step_source.c:317:13: warning: 'flight_sample_task' defined but not used [-Wunused-function]
+  317 | static void flight_sample_task(void *arg)
+      |             ^~~~~~~~~~~~~~~~~~
