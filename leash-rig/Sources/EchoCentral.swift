@@ -149,8 +149,11 @@ extension EchoCentral: CBPeripheralDelegate {
             DispatchQueue.main.async { self.deviceInfo = info }
             return
         }
-        /* The entire job: bounce it back immediately, still on our queue. */
-        guard let rx else { return }
+        /* The entire job: bounce pings back immediately, still on our
+           queue. Binary frames only (flags kind bits == 1) — JSON traffic
+           (telemetry) is not part of the measurement, and echoing the
+           watch's own events back currently crashes it (known bug). */
+        guard let rx, data.count >= 4, data[2] & 0x03 == 1 else { return }
         peripheral.writeValue(data, for: rx, type: .withoutResponse)
         echoed += 1
         if echoed % 16 == 0 || echoed < 4 {

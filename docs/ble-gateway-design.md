@@ -284,6 +284,29 @@ A manifest earns its way back only if third-party devices need to
 declare capabilities to a generic app, or secrets must move off-device.
 Both are additive later; neither blocks anything now.
 
+## Measured: the BLE+phone hop (2026-08-14, LeashRig)
+
+Device→phone→device RTT, timed on the watch's microsecond clock against
+a native Swift echo central (leash-rig/), 12-byte binary frames:
+
+| Regime | loss | p50 | p95 | max | stddev |
+|---|---|---|---|---|---|
+| Foreground (200 @100ms) | 0 | 44.4ms | 54.5 | 54.5 | 8.2 |
+| Backgrounded (200 @100ms) | 0 | 47.9ms | 58.0 | 87.9 | 9.1 |
+| Phone locked (200 @100ms) | 0 | 46.4ms | 56.4 | 86.3 | 9.3 |
+| **Post-SIGKILL, State-Restoration relaunch** (100 @100ms) | 0 | 44.6ms | 54.6 | 74.6 | 8.7 |
+| Voice-stream cadence (500 @20ms, locked) | 0 | 45.0ms | 55.4 | 89.9 | 9.3 |
+
+Findings: RTTs are cleanly tri-modal (~10ms connection-interval slots);
+**every app state costs the same ~45ms**, including relaunch-from-kill
+(the link never drops — bluetoothd holds it and resurrects the app);
+streaming load adds no jitter or buildup. Implications: the phone relay
+adds ~22ms each way to any voice path — negligible even for realtime
+conversation, dissolving most of the availability-vs-responsiveness
+tension — and native CoreBluetooth's background/restoration story
+delivered flawlessly, confirming the Swift direction. Unmeasured still:
+multi-hour idle throttling, and larger-frame (audio-sized) payloads.
+
 ## Budgets and constraints
 
 | Concern | Number | Note |
