@@ -4,6 +4,8 @@
 #include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+#include "freertos/idf_additions.h"
 #include "esp_err.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -143,24 +145,27 @@ static void send_json(const char *json)
 
 /* ---------- inbound: reassemble and echo ---------- */
 
+/* Runs on the leash worker task ONLY (statics are safe): bounded,
+   NUL-terminated parsing — arbitrary central input must never walk off
+   a buffer (pocket-pet#1). */
 static void handle_json_message(const uint8_t *bytes, size_t length)
 {
     printf("leash: rx json (%u bytes)\n", (unsigned)length);
+    if (length == 0 || length >= REASSEMBLY_MAX) return;
+    static char text[REASSEMBLY_MAX + 1];
+    memcpy(text, bytes, length);
+    text[length] = '\0';
     /* Echo envelope: find "id":N with a dumb scan (no JSON lib on this
        path yet; the P2 watch client will own real parsing). */
-    const char *id_key = NULL;
-    for (size_t i = 0; i + 4 < length; i++) {
-        if (memcmp(bytes + i, "\"id\"", 4) == 0) {
-            id_key = (const char *)bytes + i;
-            break;
-        }
-    }
+    const char *id_key = strstr(text, "\"id\"");
     if (id_key == NULL) return; /* event or malformed: nothing owed */
-    long id = strtol(strchr(id_key, ':') + 1, NULL, 10);
-    char reply[REASSEMBLY_MAX + 64];
+    const char *colon = strchr(id_key + 4, ':');
+    if (colon == NULL) return;
+    long id = strtol(colon + 1, NULL, 10);
+    static char reply[REASSEMBLY_MAX + 64];
     int reply_length = snprintf(reply, sizeof(reply),
-                                "{\"id\":%ld,\"status\":599,\"body\":{\"echo\":%.*s}}",
-                                id, (int)length, (const char *)bytes);
+                                "{\"id\":%ld,\"status\":599,\"body\":{\"echo\":%s}}",
+                                id, text);
     if (reply_length > 0 && (size_t)reply_length < sizeof(reply)) {
         send_json(reply);
     }
@@ -214,15 +219,46 @@ static int info_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt
     return os_mbuf_append(ctxt->om, info, length) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+/*
+ * RX frames hop from the NimBLE host task to a worker via this queue.
+ * The host-task callback must stay tiny: the original in-callback parse
+ * (512B flat buffer + printf + newlib on NimBLE's ~4KB stack) overflowed
+ * into adjacent heap and corrupted the host's own event queue — the
+ * IWDT-spinning-on-a-garbage-spinlock crash of pocket-pet#1. Statics in
+ * rx_access/worker are safe: each runs on exactly one task.
+ */
+typedef struct {
+    uint16_t length;
+    uint8_t bytes[512];
+} rx_item_t;
+
+static QueueHandle_t rx_queue;
+
 static int rx_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     (void)conn; (void)attr; (void)arg;
-    uint8_t frame[512];
+    static rx_item_t item;
     uint16_t length = OS_MBUF_PKTLEN(ctxt->om);
-    if (length > sizeof(frame)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-    ble_hs_mbuf_to_flat(ctxt->om, frame, sizeof(frame), &length);
-    feed_frame(frame, length);
+    if (length > sizeof(item.bytes)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    ble_hs_mbuf_to_flat(ctxt->om, item.bytes, sizeof(item.bytes), &length);
+    item.length = length;
+    if (rx_queue != NULL) {
+        /* Full queue drops the frame: resume/retry is protocol-level, and
+           the host task must never block on a slow (or hostile) sender. */
+        xQueueSend(rx_queue, &item, 0);
+    }
     return 0;
+}
+
+static void worker_task(void *arg)
+{
+    (void)arg;
+    static rx_item_t item;
+    while (true) {
+        if (xQueueReceive(rx_queue, &item, portMAX_DELAY) == pdTRUE) {
+            feed_frame(item.bytes, item.length);
+        }
+    }
 }
 
 static int tx_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
@@ -417,7 +453,9 @@ void device_leash_init(void)
     ble_svc_gap_device_name_set("leash-pika");
     ble_gatts_count_cfg(services);
     ble_gatts_add_svcs(services);
+    rx_queue = xQueueCreateWithCaps(8, sizeof(rx_item_t), MALLOC_CAP_SPIRAM);
     nimble_port_freertos_init(host_task);
+    xTaskCreate(worker_task, "leashwrk", 4096, NULL, 4, NULL);
     xTaskCreate(telemetry_task, "leashtel", 3072, NULL, 3, NULL);
     printf("leash: BLE peripheral up\n");
 }
