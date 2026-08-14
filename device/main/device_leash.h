@@ -5,3 +5,8 @@
    emitting real telemetry events while a central is subscribed. See
    docs/ble-gateway-design.md. */
 void device_leash_init(void);
+
+/* Latency rig: sends `count` timestamped binary frames at `interval_ms`,
+   expects the central to echo them, prints the RTT distribution over
+   serial. Blocks the calling task for count*interval + 3s grace. */
+void device_leash_ping(uint32_t count, uint32_t interval_ms);

@@ -1,5 +1,7 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_err.h"
@@ -66,6 +68,39 @@ static size_t reassembly_length;
 static bool reassembly_open;
 
 static void start_advertising(void);
+
+/*
+ * Latency rig (leashping console command): the device sends binary frames
+ * carrying their own send-timestamp; the central echoes every binary frame
+ * back verbatim; RTT is computed here against the same microsecond clock,
+ * so the phone's state (foreground / background / locked / relaunched) is
+ * the thing under test and never part of the instrument.
+ *
+ * Ping payload (12 bytes, fits a single frame even at MTU 23):
+ *   'P' 'G'  [seq:u16 LE]  [t_us:i64 LE]
+ */
+static int64_t *ping_rtts;          /* PSRAM, one slot per expected echo */
+static volatile uint32_t ping_received;
+static uint32_t ping_target;
+
+static void ping_note_echo(const uint8_t *payload, size_t length)
+{
+    if (length < 12 || payload[0] != 'P' || payload[1] != 'G') return;
+    int64_t sent_us;
+    memcpy(&sent_us, payload + 4, sizeof(sent_us));
+    int64_t rtt = esp_timer_get_time() - sent_us;
+    if (ping_rtts != NULL && ping_received < ping_target) {
+        ping_rtts[ping_received] = rtt;
+    }
+    ping_received++;
+}
+
+static int compare_int64(const void *a, const void *b)
+{
+    int64_t left = *(const int64_t *)a;
+    int64_t right = *(const int64_t *)b;
+    return left < right ? -1 : left > right ? 1 : 0;
+}
 
 /* ---------- outbound: fragment and notify ---------- */
 
@@ -139,7 +174,11 @@ static void feed_frame(const uint8_t *frame, size_t frame_length)
     uint8_t kind = frame[2] & 0x03;
     uint8_t position = (frame[2] >> 2) & 0x03;
     const uint8_t *payload = frame + 4;
-    if (kind != 0) return; /* binary streams arrive with the P2 client */
+    if (kind == 1) {
+        ping_note_echo(payload, payload_length);
+        return;
+    }
+    if (kind != 0) return;
 
     if (position == 0) { /* only */
         handle_json_message(payload, payload_length);
@@ -301,6 +340,68 @@ static void telemetry_task(void *arg)
                  (unsigned long)step_source_total(), battery_source_percent());
         send_json(event);
     }
+}
+
+void device_leash_ping(uint32_t count, uint32_t interval_ms)
+{
+    if (connection_handle == BLE_HS_CONN_HANDLE_NONE || !tx_subscribed) {
+        printf("leashping: no subscribed central\n");
+        return;
+    }
+    if (count == 0 || count > 10000) count = 200;
+    if (interval_ms == 0) interval_ms = 100;
+    free(ping_rtts);
+    ping_rtts = heap_caps_malloc(count * sizeof(int64_t), MALLOC_CAP_SPIRAM);
+    if (ping_rtts == NULL) {
+        printf("leashping: alloc failed\n");
+        return;
+    }
+    ping_target = count;
+    ping_received = 0;
+
+    printf("leashping: %lu pings at %lums\n", (unsigned long)count,
+           (unsigned long)interval_ms);
+    uint32_t sent_ok = 0;
+    for (uint32_t seq = 0; seq < count; seq++) {
+        uint8_t payload[12] = {'P', 'G', seq & 0xFF, (seq >> 8) & 0xFF};
+        int64_t now = esp_timer_get_time();
+        memcpy(payload + 4, &now, sizeof(now));
+        if (send_frame(payload, sizeof(payload), 0x01 /* binary, only */) == 0) {
+            sent_ok++;
+        }
+        vTaskDelay(pdMS_TO_TICKS(interval_ms));
+        if ((seq & 0x1F) == 0x1F) {
+            printf("leashping: %lu/%lu sent, %lu echoed\n", (unsigned long)(seq + 1),
+                   (unsigned long)count, (unsigned long)ping_received);
+        }
+    }
+    vTaskDelay(pdMS_TO_TICKS(3000)); /* grace for stragglers */
+
+    uint32_t got = ping_received < ping_target ? ping_received : ping_target;
+    if (got == 0) {
+        printf("leashping: sent_ok=%lu echoed=0 — nothing came back\n",
+               (unsigned long)sent_ok);
+        return;
+    }
+    qsort(ping_rtts, got, sizeof(int64_t), compare_int64);
+    int64_t sum = 0;
+    for (uint32_t i = 0; i < got; i++) sum += ping_rtts[i];
+    int64_t mean = sum / got;
+    int64_t variance = 0;
+    for (uint32_t i = 0; i < got; i++) {
+        int64_t delta = ping_rtts[i] - mean;
+        variance += delta * delta / got;
+    }
+    printf("leashping RESULT sent=%lu echoed=%lu lost=%lu\n",
+           (unsigned long)sent_ok, (unsigned long)got,
+           (unsigned long)(sent_ok - got));
+    printf("leashping RTT ms: min=%.1f p50=%.1f p95=%.1f max=%.1f mean=%.1f stddev=%.1f\n",
+           ping_rtts[0] / 1000.0, ping_rtts[got / 2] / 1000.0,
+           ping_rtts[(uint32_t)(got * 0.95)] / 1000.0, ping_rtts[got - 1] / 1000.0,
+           mean / 1000.0, sqrt((double)variance) / 1000.0);
+    printf("leashping RAW us:");
+    for (uint32_t i = 0; i < got; i++) printf(" %lld", (long long)ping_rtts[i]);
+    printf("\n");
 }
 
 void device_leash_init(void)

@@ -1,0 +1,23 @@
+name: LeashRig
+options:
+  bundleIdPrefix: dev.frolic
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  LeashRig:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.frolic.leashrig
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: LeashRig
+        NSBluetoothAlwaysUsageDescription: Measures BLE relay latency with the leash watch.
+        UIBackgroundModes: [bluetooth-central]
+        UILaunchScreen: {}
