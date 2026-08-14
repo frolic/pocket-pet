@@ -126,6 +126,10 @@ void app_main(void)
     device_ota_start();
 #endif
     /* After wifi: its core structures demand internal RAM ("alloc pp wdev
-       funcs" fails otherwise); the BLE host lives in PSRAM and can wait. */
+       funcs" fails otherwise); the BLE host lives in PSRAM and can wait.
+       FROLIC_DISABLE_BLE builds a BLE-quiet bench firmware (e.g. to measure
+       wifi without 2.4GHz coexistence). */
+#ifndef FROLIC_DISABLE_BLE
     device_familiar_init();
+#endif
 }
