@@ -1,0 +1,10 @@
+module ExpoModulesJSI {
+  header "ExpoModulesJSI-Swift.h"
+  export *
+
+  explicit module Cxx {
+    requires cplusplus
+    header "NativeState.h"
+    export *
+  }
+}

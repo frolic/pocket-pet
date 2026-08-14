@@ -5,7 +5,7 @@ rewritten after the flush saga; the old "PSRAM draw buffer" rule is dead).
 
 ## 2026-08-13/14: Leash end-to-end MILESTONE + next work items
 
-The BLE gateway (docs/ble-gateway-design.md) went from design to a
+The BLE gateway (https://github.com/frolic/familiar (docs/design.md)) went from design to a
 working first relay in one session: NimBLE firmware (`device_leash.c`,
 advertising as leash-pika, INFO + framed TX/RX channel) + Expo dev build
 on Kevin's iPhone (leash/, installed via direct xcodebuild with
