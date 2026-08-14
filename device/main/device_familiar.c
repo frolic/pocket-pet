@@ -149,6 +149,7 @@ static void send_json(const char *json)
    NUL-terminated parsing — arbitrary central input must never walk off
    a buffer (pocket-pet#1). */
 static volatile long weather_outstanding_id;
+static volatile int64_t weather_sent_us;
 
 static void handle_json_message(const uint8_t *bytes, size_t length)
 {
@@ -165,8 +166,14 @@ static void handle_json_message(const uint8_t *bytes, size_t length)
     if (colon == NULL) return;
     long id = strtol(colon + 1, NULL, 10);
     if (id != 0 && id == weather_outstanding_id) {
-        /* The relay answered our weather request: print the reading. */
+        /* The relay answered our weather request: print the reading and
+           decompose the RTT using the phone's own http stamp (t.http). */
         weather_outstanding_id = 0;
+        double total_ms = (esp_timer_get_time() - weather_sent_us) / 1000.0;
+        const char *timing = strstr(text, "\"t\":");
+        const char *http_stamp =
+            timing != NULL ? strstr(timing, "\"http\":") : NULL;
+        double phone_ms = http_stamp != NULL ? strtod(http_stamp + 7, NULL) : -1;
         /* Anchor to the "current" object: the sibling "current_units"
            block also holds a temperature_2m, but as the string "°C". */
         const char *current = strstr(text, "\"current\":");
@@ -177,6 +184,12 @@ static void handle_json_message(const uint8_t *bytes, size_t length)
                    strtod(temperature + 17, NULL));
         } else {
             printf("familiar: weather reply without temperature: %s\n", text);
+        }
+        if (phone_ms >= 0) {
+            printf("familiar: rtt %.1fms = phone(parse+http) %.1f + ble/os %.1f (%uB reply)\n",
+                   total_ms, phone_ms, total_ms - phone_ms, (unsigned)length);
+        } else {
+            printf("familiar: rtt %.1fms (no phone timing in reply)\n", total_ms);
         }
         return;
     }
@@ -392,6 +405,7 @@ void device_familiar_weather(void)
              weather_outstanding_id);
     printf("familiar: asking relay for weather (id=%ld)\n",
            weather_outstanding_id);
+    weather_sent_us = esp_timer_get_time();
     send_json(request);
 }
 
