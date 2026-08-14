@@ -3,18 +3,22 @@
 Read `CLAUDE.md` first (hardware landmines — note landmine #1 was
 rewritten after the flush saga; the old "PSRAM draw buffer" rule is dead).
 
-## 2026-08-13/14: Leash end-to-end MILESTONE + next work items
+## 2026-08-13/14: Familiar end-to-end MILESTONE + next work items
 
-The BLE gateway (https://github.com/frolic/familiar (docs/design.md)) went from design to a
-working first relay in one session: NimBLE firmware (`device_leash.c`,
-advertising as leash-pika, INFO + framed TX/RX channel) + Expo dev build
-on Kevin's iPhone (leash/, installed via direct xcodebuild with
--allowProvisioningUpdates; Swift fix for Xcode 26.3 persisted in
-leash/patches/). First connection: INFO read, framed telemetry event
-relayed to a real HTTP POST at iOS's worst-case mtu=23. Fitting BLE
-beside wifi took a three-step internal-RAM campaign (wifi/lwip, NimBLE
-host, and LVGL's 64KB pool all now in PSRAM) — heap is HEALTHIER than
-pre-BLE (50k/44k-min with both radios up).
+The BLE gateway is **Familiar** (github.com/frolic/familiar — pure Swift
+iOS app, bundle id `tools.familiar.app`, Kevin owns familiar.tools;
+protocol spec in its docs/design.md). Firmware side is
+`device/main/device_familiar.c`: NimBLE peripheral advertising as
+`pika`, INFO + framed TX/RX channel, telemetry relayed through the phone
+to a real HTTP POST at iOS's worst-case mtu=23. Fitting BLE beside wifi
+took a three-step internal-RAM campaign (wifi/lwip, NimBLE host, and
+LVGL's 64KB pool all now in PSRAM) — heap is HEALTHIER than pre-BLE
+(50k/44k-min with both radios up).
+
+Measured latency (famping console command ↔ Familiar echo central):
+~45ms RTT p50, 0/1200 loss, stable across foreground / background /
+locked / post-SIGKILL state restoration, including 20ms streaming
+cadence — background relay is viable for voice.
 
 Next firmware session, in order:
 1. **BLE follows the screen** like wifi (advertise/connect only while
@@ -22,23 +26,13 @@ Next firmware session, in order:
    first relay died when the watch dozed mid-session: manual light sleep
    freezes the BLE controller (design-doc open question #1, confirmed).
    Background relay via BT modem-sleep clocking is the later experiment.
-2. MTU: watch re-reads att_mtu per send (fine); app snapshots mtu at
-   connect (23, before iOS renegotiates ~185) — refresh it per send or
-   on the MTU-updated event.
-3. Retarget bring-up telemetry to httpbin.org (committed, NOT yet
-   flashed — watch was off USB) and swap to the real pet API when it
+2. MTU: watch re-reads att_mtu per send (fine); the app must refresh its
+   mtu per send or on the MTU-updated event (iOS renegotiates 23→~185
+   after connect).
+3. Port the relay engine (framing + HTTP execution) from the design doc
+   into the Familiar app — today it only echoes.
+4. Swap bring-up telemetry (httpbin.org) to the real pet API when it
    exists.
-4. `leash-validate` Mac scripts live in the session scratchpad if a
-   bench central is ever wanted (blocked on macOS TCC last time; the
-   phone app made it moot).
-5. **Expo-vs-native decision gate** (Kevin raised it): the background
-   soak test decides. If RN/Expo background BLE wakes prove unreliable
-   (JS runtime boot per wake; CoreBluetooth state restoration is
-   first-class only in native), port the app to Swift — the protocol
-   core is ~300 lines with the TS test suite as the spec, and all of
-   tonight's Apple signing ceremony transfers as-is. Until measured,
-   keep iterating on the working Expo build; invest nothing further in
-   Expo-specific machinery.
 
 ## Kevin's mandate — the operating rule
 

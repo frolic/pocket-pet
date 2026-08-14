@@ -9,7 +9,7 @@
 #include "esp_lvgl_port.h"
 #include "bsp/display.h"
 #include "device_debug.h"
-#include "device_leash.h"
+#include "device_familiar.h"
 #include "device_wifi.h"
 #include "device_ota.h"
 #include "device_power.h"
@@ -127,5 +127,5 @@ void app_main(void)
 #endif
     /* After wifi: its core structures demand internal RAM ("alloc pp wdev
        funcs" fails otherwise); the BLE host lives in PSRAM and can wait. */
-    device_leash_init();
+    device_familiar_init();
 }

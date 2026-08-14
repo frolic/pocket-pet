@@ -11,7 +11,7 @@ idf_component_register(
     SRCS
         "main.c"
         "render_test_main.c"
-        "device_leash.c"
+        "device_familiar.c"
         "device_lv_malloc.c"
         "device_wifi.c"
         "device_ota.c"

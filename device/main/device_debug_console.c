@@ -15,7 +15,7 @@
 #include "device_debug_console.h"
 #include "device_debug.h"
 #include "device_flush_gate.h"
-#include "device_leash.h"
+#include "device_familiar.h"
 #include "device_sleep.h"
 #include "display_sleep.h"
 #include "device_wifi.h"
@@ -323,11 +323,11 @@ static void console_task(void *arg)
             int pace = 0;
             sscanf(line + 7, "%d %d", &height, &pace);
             raw_grid(height, pace);
-        } else if (strncmp(line, "leashping", 9) == 0) {
+        } else if (strncmp(line, "famping", 9) == 0) {
             unsigned count = 200;
             unsigned interval = 100;
             sscanf(line + 9, "%u %u", &count, &interval);
-            device_leash_ping(count, interval);
+            device_familiar_ping(count, interval);
         } else if (strcmp(line, "sleepstats") == 0) {
             device_sleep_stats_print();
         } else if (strcmp(line, "sleepstats reset") == 0) {
