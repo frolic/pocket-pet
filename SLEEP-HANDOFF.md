@@ -53,9 +53,18 @@ only a full reset re-enumerates; a dark-sleeping watch is unreachable
 until a PWR power-cycle (10s hold, then press).
 
 Next firmware session:
-1. Fresh-window dark-drain measurement with the controller-stop fix
-   (`sleepstats reset`, overnight on battery) — expect single-digit %%/h.
-2. Swap bring-up telemetry (httpbin.org) and the weather demo to the
+1. Read the fresh-window overnight dark-drain (counters were reset
+   2026-08-15 ~22:30) — the controller-stop fix's clean baseline.
+2. **FIFO step batching** (design agreed with Kevin: accuracy over
+   realtime — a >=1s count delay is fine): accel keeps sampling into the
+   QMI8658's on-chip FIFO (1.5KB ≈ 256 samples; ~62Hz gives a finer
+   waveform than today's jittery 25Hz poll AND ~4s of buffer), the dark
+   loop sleeps in ~1s quanta (bound: PWR-button wake latency, polled via
+   the AXP2101), each wake drains the FIFO in one I2C burst and runs the
+   existing sw detector over the batch with per-sample timestamps.
+   Replaces the 25-wakes/sec 40ms quanta (~2-3mA of the dark budget).
+   Do NOT land this the same night as the baseline measurement.
+3. Swap bring-up telemetry (httpbin.org) and the weather demo to the
    real pet API when it exists.
 
 ## Kevin's mandate — the operating rule
