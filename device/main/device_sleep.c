@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_sleep.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "lvgl.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
@@ -69,6 +70,14 @@ typedef struct {
     uint32_t blocked_radio; /* DOZING polls refused: BLE session live */
     uint32_t dark_battery_pct; /* cumulative %% consumed inside dark loops */
     uint32_t dark_wall_ms;     /* cumulative wall time inside dark loops */
+    /* Boot-reason breadcrumbs (recorded every boot): a nighttime screen
+       light-up with no button press is a reboot — these say which kind. */
+    uint32_t boots_panic;
+    uint32_t boots_wdt;      /* interrupt/task watchdog */
+    uint32_t boots_brownout;
+    uint32_t boots_sw;       /* esp_restart (self-heal) */
+    uint32_t boots_poweron;
+    uint32_t boots_other;
 } sleep_stats_t;
 
 static sleep_stats_t stats;
@@ -93,6 +102,11 @@ static void stats_restore(void)
 
 void device_sleep_stats_print(void)
 {
+    printf("sleepstats: boots panic=%lu wdt(iwdt*10000+twdt*100+wdt)=%lu brownout=%lu sw=%lu poweron=%lu other=%lu (this boot: %d)\n",
+           (unsigned long)stats.boots_panic, (unsigned long)stats.boots_wdt,
+           (unsigned long)stats.boots_brownout, (unsigned long)stats.boots_sw,
+           (unsigned long)stats.boots_poweron, (unsigned long)stats.boots_other,
+           (int)esp_reset_reason());
     uint32_t dark_min = stats.dark_wall_ms / 60000;
     uint32_t slept_min = stats.slept_ms / 60000;
     printf("sleepstats: entries=%lu slept=%lumin dark=%lumin quanta=%lu "
@@ -137,9 +151,16 @@ static bool sleep_eligible(void)
     /* BLE check: manual light sleep freezes the BLE controller, so a live
        session (central connected) blocks sleep; the BLE-follows-the-screen
        policy tears the session down shortly after DOZING lands. */
+#ifdef FROLIC_SLEEP_ON_VBUS
+    /* Bench: sleep even on USB power so the dark loop runs with the
+       flasher attached (each WDT reboot re-enumerates USB for capture). */
+    return device_state_get() == DEVICE_STATE_DOZING &&
+           !device_familiar_central_connected();
+#else
     return device_state_get() == DEVICE_STATE_DOZING &&
            !device_familiar_central_connected() &&
            !axp2101_vbus_present();
+#endif
 }
 
 static void catch_up(int64_t *credit_us)
@@ -253,9 +274,27 @@ static void sleep_task(void *arg)
     }
 }
 
+static void record_boot_reason(void)
+{
+    switch (esp_reset_reason()) {
+    case ESP_RST_PANIC: stats.boots_panic++; break;
+    /* Subtype matters: INT_WDT implicates ISRs (the frozen BLE
+       controller), TASK_WDT implicates the awake window starving idle. */
+    case ESP_RST_INT_WDT: stats.boots_wdt += 10000; break;
+    case ESP_RST_TASK_WDT: stats.boots_wdt += 100; break;
+    case ESP_RST_WDT: stats.boots_wdt++; break;
+    case ESP_RST_BROWNOUT: stats.boots_brownout++; break;
+    case ESP_RST_SW: stats.boots_sw++; break;
+    case ESP_RST_POWERON: stats.boots_poweron++; break;
+    default: stats.boots_other++; break;
+    }
+    stats_persist();
+}
+
 void device_sleep_init(void)
 {
     stats_restore();
+    record_boot_reason();
     device_sleep_stats_print();
     /* Above the LVGL/step tasks: wake handling preempts routine polls, and
        the loop only yields CPU at its own explicit points. */

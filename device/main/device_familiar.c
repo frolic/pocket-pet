@@ -72,6 +72,8 @@ static size_t reassembly_length;
 static bool reassembly_open;
 
 static void start_advertising(void);
+static void ble_stack_start(void);
+static void ble_stack_stop(void);
 
 /*
  * Latency rig (famping console command): the device sends binary frames
@@ -512,25 +514,41 @@ static void radio_policy_task(void *arg)
     (void)arg;
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(500));
+#ifdef FROLIC_SLEEP_ON_VBUS
+        /* Bench: ignore vbus so the dark-loop teardown runs on USB. */
+        bool want = device_state_get() == DEVICE_STATE_ACTIVE;
+#else
         bool want = device_state_get() == DEVICE_STATE_ACTIVE ||
                     axp2101_vbus_present();
+#endif
         if (want == radio_wanted) continue;
         radio_wanted = want;
         if (want) {
-            start_advertising();
-            printf("familiar: screen on — advertising\n");
+            ble_stack_start(); /* advertises via on_sync */
+            printf("familiar: screen on — BLE stack up\n");
         } else {
             if (connection_handle != BLE_HS_CONN_HANDLE_NONE) {
                 ble_gap_terminate(connection_handle, BLE_ERR_REM_USER_CONN_TERM);
+                vTaskDelay(pdMS_TO_TICKS(200)); /* let the terminate land */
             }
-            ble_gap_adv_stop();
-            printf("familiar: dark on battery — BLE down\n");
+            ble_stack_stop();
+            printf("familiar: dark on battery — BLE stack down (controller off)\n");
         }
     }
 }
 
-void device_familiar_init(void)
+/* Full stack up/down, controller included. The dark-hours teardown MUST
+   reach the controller: manual esp_light_sleep_start ignores the pm locks
+   the controller holds, and force-sleeping under an active controller
+   wedges the sleep entry/exit handshake until the RTC watchdog resets the
+   chip (~once per 32min of dark sleep, measured 2026-08-15) — and burns
+   ~23%%/h keeping the RF clock domain powered. Stopped controller = clean
+   sleeps and dark drain back to fuel-gauge noise. */
+static bool stack_running;
+
+static void ble_stack_start(void)
 {
+    if (stack_running) return;
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
         printf("familiar: nimble init failed (%s)\n", esp_err_to_name(err));
@@ -542,8 +560,25 @@ void device_familiar_init(void)
     ble_svc_gap_device_name_set("pika");
     ble_gatts_count_cfg(services);
     ble_gatts_add_svcs(services);
-    rx_queue = xQueueCreateWithCaps(8, sizeof(rx_item_t), MALLOC_CAP_SPIRAM);
     nimble_port_freertos_init(host_task);
+    stack_running = true;
+}
+
+static void ble_stack_stop(void)
+{
+    if (!stack_running) return;
+    stack_running = false;
+    connection_handle = BLE_HS_CONN_HANDLE_NONE;
+    tx_subscribed = false;
+    if (nimble_port_stop() == 0) {
+        nimble_port_deinit(); /* also disables + deinits the controller */
+    }
+}
+
+void device_familiar_init(void)
+{
+    rx_queue = xQueueCreateWithCaps(8, sizeof(rx_item_t), MALLOC_CAP_SPIRAM);
+    ble_stack_start();
     xTaskCreate(worker_task, "famwrk", 4096, NULL, 4, NULL);
     xTaskCreate(telemetry_task, "famtel", 3072, NULL, 3, NULL);
     xTaskCreate(radio_policy_task, "famradio", 3072, NULL, 3, NULL);
