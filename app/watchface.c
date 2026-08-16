@@ -34,6 +34,7 @@ static lv_obj_t *exp_fill;
 static lv_obj_t *record_dot;
 static lv_obj_t *battery_root;
 static lv_obj_t *battery_fill;
+static lv_obj_t *battery_percent_text;
 static lv_obj_t *wifi_icon;
 static lv_obj_t *wifi_bars[3];
 static watchface_wifi_state_t wifi_state;
@@ -245,6 +246,9 @@ void watchface_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(battery_fill, LV_OPA_COVER, 0);
     lv_obj_set_pos(battery_fill, BATTERY_PX, BATTERY_PX);
 
+    battery_percent_text = pixel_text_create_mini(screen);
+    lv_obj_add_flag(battery_percent_text, LV_OBJ_FLAG_HIDDEN);
+
     /* Radio status: pixel wifi fan, tinted by state. Tap = wifi setup. */
     wifi_icon = lv_obj_create(screen);
     lv_obj_remove_style_all(wifi_icon);
@@ -371,6 +375,7 @@ void watchface_set_battery(int percent, bool charging)
 {
     if (percent < 0) {
         lv_obj_add_flag(battery_root, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(battery_percent_text, LV_OBJ_FLAG_HIDDEN);
         return;
     }
     lv_obj_remove_flag(battery_root, LV_OBJ_FLAG_HIDDEN);
@@ -381,6 +386,22 @@ void watchface_set_battery(int percent, bool charging)
                      : percent <= 20 ? BATTERY_LOW_COLOR
                      : BATTERY_OK_COLOR;
     lv_obj_set_style_bg_color(battery_fill, color, 0);
+
+    /* Tiny percent digits under the bar, right edges aligned, tinted to
+       match. Re-rendered only when the reading changes. */
+    static int shown_percent = -1;
+    static bool shown_charging;
+    if (percent != shown_percent || charging != shown_charging) {
+        shown_percent = percent;
+        shown_charging = charging;
+        char text[16];
+        snprintf(text, sizeof(text), "%d", percent);
+        pixel_text_set(battery_percent_text, text);
+        pixel_text_set_color(battery_percent_text, color);
+        lv_obj_align(battery_percent_text, LV_ALIGN_TOP_RIGHT, -40,
+                     26 + 5 * BATTERY_PX + 3);
+    }
+    lv_obj_remove_flag(battery_percent_text, LV_OBJ_FLAG_HIDDEN);
 }
 
 void watchface_set_steps(uint32_t total)

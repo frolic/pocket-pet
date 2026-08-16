@@ -5,6 +5,9 @@
 /* A text row composed of pixel-font glyph sprites (proportional advances). */
 lv_obj_t *pixel_text_create(lv_obj_t *parent);
 
+/* Two-thirds-size variant for unobtrusive overlays (battery percent). */
+lv_obj_t *pixel_text_create_mini(lv_obj_t *parent);
+
 /* Replaces the text (unknown characters are skipped). */
 void pixel_text_set(lv_obj_t *text_row, const char *text);
 

@@ -3,17 +3,34 @@
 #include "sprites/pixel_font.h"
 
 /* Glyphs ship native; each is upscaled once on first use and cached. */
-static const lv_image_dsc_t *scaled_glyph(char c)
+static const lv_image_dsc_t *glyph_at_scale(char c, int scale,
+                                            const lv_image_dsc_t **cache)
 {
-    static const lv_image_dsc_t *cache[128];
     unsigned char index = (unsigned char)c;
     if (index >= 128) return NULL;
     if (cache[index] == NULL) {
         const lv_image_dsc_t *native = pixel_font_glyph(c);
         if (native == NULL) return NULL;
-        cache[index] = pixel_scale_image(native, PIXEL_FONT_GLYPH_SCALE);
+        cache[index] = pixel_scale_image(native, scale);
     }
     return cache[index];
+}
+
+static const lv_image_dsc_t *scaled_glyph(char c)
+{
+    static const lv_image_dsc_t *cache[128];
+    return glyph_at_scale(c, PIXEL_FONT_GLYPH_SCALE, cache);
+}
+
+/* Mini rows (marked LV_OBJ_FLAG_USER_1) render at scale 2 — for
+   unobtrusive overlays like the battery percent. */
+#define MINI_SCALE 2
+#define MINI_HEIGHT (PIXEL_FONT_HEIGHT / PIXEL_FONT_GLYPH_SCALE * MINI_SCALE)
+
+static const lv_image_dsc_t *mini_glyph(char c)
+{
+    static const lv_image_dsc_t *cache[128];
+    return glyph_at_scale(c, MINI_SCALE, cache);
 }
 
 static void apply_color(lv_obj_t *text_row, lv_obj_t *image)
@@ -47,17 +64,28 @@ void pixel_text_set_color(lv_obj_t *text_row, lv_color_t color)
 
 void pixel_text_set(lv_obj_t *text_row, const char *text)
 {
+    bool mini = lv_obj_has_flag(text_row, LV_OBJ_FLAG_USER_1);
     lv_obj_clean(text_row);
     int32_t x = 0;
     for (const char *c = text; *c != '\0'; c++) {
-        const lv_image_dsc_t *glyph = scaled_glyph(*c);
+        const lv_image_dsc_t *glyph = mini ? mini_glyph(*c) : scaled_glyph(*c);
         if (glyph != NULL) {
             lv_obj_t *image = lv_image_create(text_row);
             lv_image_set_src(image, glyph);
             lv_obj_set_pos(image, x, 0);
             apply_color(text_row, image);
         }
-        x += pixel_font_advance(*c);
+        /* Advances are in full-scale units. */
+        int32_t advance = pixel_font_advance(*c);
+        x += mini ? advance * MINI_SCALE / PIXEL_FONT_GLYPH_SCALE : advance;
     }
-    lv_obj_set_size(text_row, x, PIXEL_FONT_HEIGHT);
+    lv_obj_set_size(text_row, x, mini ? MINI_HEIGHT : PIXEL_FONT_HEIGHT);
+}
+
+lv_obj_t *pixel_text_create_mini(lv_obj_t *parent)
+{
+    lv_obj_t *row = pixel_text_create(parent);
+    lv_obj_set_height(row, MINI_HEIGHT);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_USER_1);
+    return row;
 }
