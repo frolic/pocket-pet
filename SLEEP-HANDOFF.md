@@ -37,12 +37,26 @@ BLE follows the screen (down when dark on battery, held up on USB), and
 the-session problem is closed. Binary shrank 667KB (fits factory with
 689KB headroom); free heap roughly doubled (~145k).
 
+**2026-08-15 late: the nighttime screen light-ups solved.** Field
+breadcrumbs showed every dark loop ending in an RTC-watchdog reset
+(~every 32min): manual light sleep under an active BLE controller
+wedges the sleep entry/exit handshake (and burned ~23%/h keeping the RF
+clock domain up). Fix: the radio policy stops the WHOLE NimBLE stack
+(controller included, nimble_port_stop/deinit) when dark on battery,
+restarts on screen-on. Verified: 178min of dark sleep across pocket +
+bench with zero resets (old build never passed 32min); steps counted
+while dark (1674 on a cycle+train commute). Boot-reason counters now
+persist in sleepstats, and `FROLIC_SLEEP_ON_VBUS=1 idf.py -B
+build_slpbench` builds the bench firmware that dark-sleeps on USB.
+Bench fact: USB serial-JTAG does NOT survive wake-from-light-sleep —
+only a full reset re-enumerates; a dark-sleeping watch is unreachable
+until a PWR power-cycle (10s hold, then press).
+
 Next firmware session:
-1. Swap bring-up telemetry (httpbin.org) and the weather demo to the
+1. Fresh-window dark-drain measurement with the controller-stop fix
+   (`sleepstats reset`, overnight on battery) — expect single-digit %%/h.
+2. Swap bring-up telemetry (httpbin.org) and the weather demo to the
    real pet API when it exists.
-2. On-battery check of the new policy: dark → "familiar: dark on
-   battery — BLE down" → sleepstats duty high; screen-on → phone
-   re-links ~2s.
 
 ## Kevin's mandate — the operating rule
 
