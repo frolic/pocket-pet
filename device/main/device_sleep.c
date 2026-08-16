@@ -18,6 +18,7 @@
 #include "power_button.h"
 #include "battery_source.h"
 #include "nvs.h"
+#include <time.h>
 
 /*
  * Manual light sleep for the dark hours — the full-day-battery lever.
@@ -65,7 +66,8 @@ typedef struct {
     uint32_t dark_entries;
     uint32_t slept_ms;
     uint32_t quanta;
-    uint32_t button_wakes;
+    uint32_t button_wakes;  /* BOOT pin (instant GPIO wake) */
+    uint32_t pwr_wakes;     /* AXP2101 latched short-press flag */
     uint32_t state_exits;
     uint32_t blocked_vbus;  /* DOZING polls refused: vbus said plugged */
     uint32_t blocked_radio; /* DOZING polls refused: BLE session live */
@@ -83,11 +85,64 @@ typedef struct {
 
 static sleep_stats_t stats;
 
+/*
+ * Event journal: a timestamped ring of the moments that matter for field
+ * mysteries (boots with reason, wakes with cause, dark entries), persisted
+ * beside the stats and printed by `sleepstats`. Answers "WHEN did the
+ * screen light up and why" after a night nobody watched.
+ */
+typedef struct {
+    uint32_t epoch;
+    uint8_t code;
+} journal_entry_t;
+
+#define JOURNAL_CAPACITY 48
+#define JOURNAL_BOOT_BASE 0x10 /* 0x10 + esp_reset_reason */
+#define JOURNAL_DARK_ENTER 1
+#define JOURNAL_WAKE_BOOT 2
+#define JOURNAL_WAKE_PWR 3
+#define JOURNAL_EXIT_STATE 4
+
+static journal_entry_t journal[JOURNAL_CAPACITY];
+static uint32_t journal_next;
+
+static void journal_note(uint8_t code)
+{
+    journal[journal_next % JOURNAL_CAPACITY] =
+        (journal_entry_t){.epoch = (uint32_t)time(NULL), .code = code};
+    journal_next++;
+}
+
+static const char *journal_name(uint8_t code)
+{
+    switch (code) {
+    case JOURNAL_DARK_ENTER: return "dark-enter";
+    case JOURNAL_WAKE_BOOT: return "wake-BOOT";
+    case JOURNAL_WAKE_PWR: return "wake-PWR";
+    case JOURNAL_EXIT_STATE: return "exit-state/usb";
+    }
+    if (code >= JOURNAL_BOOT_BASE) {
+        switch (code - JOURNAL_BOOT_BASE) {
+        case 1: return "boot-poweron";
+        case 3: return "boot-sw";
+        case 4: return "boot-PANIC";
+        case 5: return "boot-IWDT";
+        case 6: return "boot-TWDT";
+        case 7: return "boot-WDT";
+        case 9: return "boot-brownout";
+        default: return "boot-other";
+        }
+    }
+    return "?";
+}
+
 static void stats_persist(void)
 {
     nvs_handle_t handle;
     if (nvs_open("slpstat", NVS_READWRITE, &handle) != ESP_OK) return;
     nvs_set_blob(handle, "v1", &stats, sizeof(stats));
+    nvs_set_blob(handle, "j1", journal, sizeof(journal));
+    nvs_set_u32(handle, "jn", journal_next);
     nvs_commit(handle);
     nvs_close(handle);
 }
@@ -98,11 +153,23 @@ static void stats_restore(void)
     if (nvs_open("slpstat", NVS_READONLY, &handle) != ESP_OK) return;
     size_t size = sizeof(stats);
     nvs_get_blob(handle, "v1", &stats, &size);
+    size = sizeof(journal);
+    nvs_get_blob(handle, "j1", journal, &size);
+    nvs_get_u32(handle, "jn", &journal_next);
     nvs_close(handle);
 }
 
 void device_sleep_stats_print(void)
 {
+    uint32_t stored = journal_next < JOURNAL_CAPACITY ? journal_next : JOURNAL_CAPACITY;
+    for (uint32_t i = journal_next - stored; i < journal_next; i++) {
+        journal_entry_t *entry = &journal[i % JOURNAL_CAPACITY];
+        struct tm stamp;
+        time_t epoch = (time_t)entry->epoch;
+        localtime_r(&epoch, &stamp);
+        printf("sleepstats: @%02d:%02d:%02d %s\n", stamp.tm_hour,
+               stamp.tm_min, stamp.tm_sec, journal_name(entry->code));
+    }
     printf("sleepstats: boots panic=%lu wdt(iwdt*10000+twdt*100+wdt)=%lu brownout=%lu sw=%lu poweron=%lu other=%lu (this boot: %d)\n",
            (unsigned long)stats.boots_panic, (unsigned long)stats.boots_wdt,
            (unsigned long)stats.boots_brownout, (unsigned long)stats.boots_sw,
@@ -111,11 +178,12 @@ void device_sleep_stats_print(void)
     uint32_t dark_min = stats.dark_wall_ms / 60000;
     uint32_t slept_min = stats.slept_ms / 60000;
     printf("sleepstats: entries=%lu slept=%lumin dark=%lumin quanta=%lu "
-           "wakes(button=%lu state=%lu) blocked(vbus=%lu radio=%lu) "
+           "wakes(boot=%lu pwr=%lu state=%lu) blocked(vbus=%lu radio=%lu) "
            "dark_drain=%lu%%\n",
            (unsigned long)stats.dark_entries, (unsigned long)slept_min,
            (unsigned long)dark_min, (unsigned long)stats.quanta,
-           (unsigned long)stats.button_wakes, (unsigned long)stats.state_exits,
+           (unsigned long)stats.button_wakes, (unsigned long)stats.pwr_wakes,
+           (unsigned long)stats.state_exits,
            (unsigned long)stats.blocked_vbus, (unsigned long)stats.blocked_radio,
            (unsigned long)stats.dark_battery_pct);
     if (dark_min > 0) {
@@ -128,6 +196,8 @@ void device_sleep_stats_print(void)
 void device_sleep_stats_reset(void)
 {
     memset(&stats, 0, sizeof(stats));
+    memset(journal, 0, sizeof(journal));
+    journal_next = 0;
     stats_persist();
     printf("sleepstats: reset\n");
 }
@@ -204,6 +274,7 @@ static void sleep_task(void *arg)
         printf("device_sleep: dark loop begin\n");
         step_source_external_pacing(true);
         stats.dark_entries++;
+        journal_note(JOURNAL_DARK_ENTER);
         int entry_battery = battery_source_percent();
         int64_t entry_wall_us = esp_timer_get_time();
         int64_t last_persist_us = entry_wall_us;
@@ -227,10 +298,17 @@ static void sleep_task(void *arg)
             step_source_drain_now();
 
             if (gpio_get_level(BOOT_BUTTON) == 0) {
+                stats.button_wakes++;
+                journal_note(JOURNAL_WAKE_BOOT);
                 wake_display = true;
                 break;
             }
             if (++quantum % PWR_POLL_QUANTA == 0 && power_button_pressed()) {
+                /* Counted separately from BOOT: an overnight pwr_wake with
+                   nobody pressing anything is a phantom latched flag or a
+                   glitched post-sleep I2C read. */
+                stats.pwr_wakes++;
+                journal_note(JOURNAL_WAKE_PWR);
                 wake_display = true;
                 break;
             }
@@ -259,8 +337,11 @@ static void sleep_task(void *arg)
 
         catch_up(&credit_us);
         step_source_external_pacing(false);
-        if (wake_display) stats.button_wakes++;
-        else stats.state_exits++;
+
+        if (!wake_display) {
+            stats.state_exits++;
+            journal_note(JOURNAL_EXIT_STATE);
+        }
         int exit_battery = battery_source_percent();
         if (entry_battery > 0 && exit_battery > 0 && exit_battery < entry_battery) {
             stats.dark_battery_pct += entry_battery - exit_battery;
@@ -290,6 +371,7 @@ static void record_boot_reason(void)
     case ESP_RST_POWERON: stats.boots_poweron++; break;
     default: stats.boots_other++; break;
     }
+    journal_note((uint8_t)(JOURNAL_BOOT_BASE + esp_reset_reason()));
     stats_persist();
 }
 
