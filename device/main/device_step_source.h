@@ -3,14 +3,15 @@
 #include <stdbool.h>
 
 /* Device-side extras beyond the app-facing step_source.h: the dark-time
-   light-sleep loop (device_sleep.c) paces accel sampling itself, one sample
-   per ~40ms wake, while the normal 40ms sampling task stands down. */
+   light-sleep loop (device_sleep.c) paces FIFO draining itself, one drain
+   per ~1s wake, while the normal 1s draining task stands down. */
 
-/* True: the sampling task skips its own reads; the caller must invoke
-   step_source_sample_now() at ~40ms cadence instead. */
+/* True: the draining task skips its own drains; the caller must invoke
+   step_source_drain_now() at ~1s cadence instead. */
 void step_source_external_pacing(bool external);
 
-/* One accel read + step-detector update + periodic NVS persist. Safe to call
-   from any task; also serializes behind any in-flight I2C transaction, which
-   the sleep loop relies on to quiesce the bus before sleeping. */
-void step_source_sample_now(void);
+/* Drain the accel FIFO in one burst and run the step detector over the
+   batch (per-sample timestamps), plus a periodic NVS persist. Safe to call
+   from any task; also serializes behind any in-flight I2C transaction,
+   which the sleep loop relies on to quiesce the bus before sleeping. */
+void step_source_drain_now(void);

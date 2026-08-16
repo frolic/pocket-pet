@@ -15,10 +15,16 @@
 #include "device_debug.h"
 
 /*
- * QMI8658 hardware pedometer. Register sequences ported from lewisxhe's
- * SensorLib (MIT) QMI8658 pedometer support. Thresholds follow its example's
- * bring-up profile (the datasheet walking profile rejects nearly everything):
- * 4G @ 125Hz, 80mg peak-to-peak, 60mg peak, 4-step entry filter.
+ * QMI8658 accelerometer as a step source. Register sequences ported from
+ * lewisxhe's SensorLib (MIT).
+ *
+ * The accel samples continuously at 31.25Hz into the chip's on-die FIFO
+ * (128 samples ~= 4s of waveform); the host drains it in one I2C burst
+ * about once a second and runs the software step detector over the batch
+ * with per-sample timestamps. Sampling is metronomic on the IMU's clock
+ * (no FreeRTOS jitter), nothing is lost while the host light-sleeps, and
+ * the dark loop only has to wake ~1x/s instead of 25x/s. Counts land at
+ * most ~1s late — accuracy over realtime, by design.
  */
 
 #define QMI_ADDRESS_PRIMARY 0x6B
@@ -37,13 +43,25 @@
 #define REG_CAL3_H 0x10
 #define REG_CAL4_L 0x11
 #define REG_CAL4_H 0x12
+#define REG_FIFO_WTM_TH 0x13
+#define REG_FIFO_CTRL 0x14
+#define REG_FIFO_COUNT 0x15
+#define REG_FIFO_STATUS 0x16
+#define REG_FIFO_DATA 0x17
 #define REG_STATUS_INT 0x2D
 #define REG_STEP_CNT_LOW 0x5A
 #define REG_RESET 0x60
 
 #define WHOAMI_VALUE 0x05
 #define COMMAND_CONFIGURE_PEDOMETER 0x0D
+#define COMMAND_REQ_FIFO 0x05
 #define COMMAND_ACK 0x00
+
+/* 128-sample stream-mode FIFO (bits[3:2]=3, bits[1:0]=2): oldest samples
+   overwrite when full, so a late drain degrades gracefully. */
+#define FIFO_CTRL_CONFIG 0x0E
+#define FIFO_SAMPLE_MS 32           /* 31.25Hz accel ODR */
+#define FIFO_MAX_SAMPLES 128
 
 static i2c_master_dev_handle_t device;
 static bool ready;
@@ -128,7 +146,7 @@ static bool pedometer_init(void)
 
     write_register(REG_CTRL1, 0x40); /* register address auto-increment */
     write_register(REG_CTRL8, 0x80); /* CTRL9 handshake via STATUS_INT.7 */
-    write_register(REG_CTRL2, 0x16); /* accel 4G range, 125Hz ODR */
+    write_register(REG_CTRL2, 0x18); /* accel 4G range, 31.25Hz ODR */
 
     /* Pedometer configuration, two CAL-register batches (SensorLib recipe). */
     write_register(REG_CAL1_L, 50);   /* sample window */
@@ -154,9 +172,11 @@ static bool pedometer_init(void)
     write_register(REG_CTRL7, 0x01);  /* accelerometer on */
     uint8_t ctrl8 = 0;
     read_registers(REG_CTRL8, &ctrl8, 1);
-    write_register(REG_CTRL8, ctrl8 | (1 << 4)); /* pedometer on */
+    write_register(REG_CTRL8, ctrl8 | (1 << 4)); /* pedometer on (diag only) */
+    write_register(REG_FIFO_WTM_TH, 0);
+    write_register(REG_FIFO_CTRL, FIFO_CTRL_CONFIG);
 
-    printf("qmi8658: pedometer running\n");
+    printf("qmi8658: accel sampling into fifo\n");
     return true;
 }
 
@@ -164,14 +184,13 @@ static bool pedometer_init(void)
  * Software step detector. The QMI8658's on-die pedometer engine never
  * produced a count on this board even with verified-executed configuration
  * (CTRL9 handshake confirmed, reference thresholds), so steps are detected
- * here instead: 25Hz accel magnitude, EMA gravity baseline, positive-peak
- * detection gated to walking cadence, and an entry filter so lone bumps
- * don't count. The hardware counter is still read in diagnostics for
- * comparison should a future silicon revision start working.
+ * here instead: accel magnitude at the FIFO's 31.25Hz, EMA gravity
+ * baseline, positive-peak detection gated to walking cadence, and an entry
+ * filter so lone bumps don't count. The hardware counter is still read in
+ * diagnostics should a future silicon revision start working.
  */
 
 /* 4G range: 8192 counts per g. */
-#define SW_SAMPLE_MS 40
 #define SW_PEAK_THRESHOLD 900.0f    /* ~0.11g above baseline */
 #define SW_MIN_STEP_MS 280          /* max cadence ~3.5 steps/s */
 #define SW_MAX_STEP_MS 1000         /* min cadence 1 step/s */
@@ -179,6 +198,7 @@ static bool pedometer_init(void)
 #define SW_RESET_GAP_MS 1400
 
 static volatile uint32_t sw_steps;
+static volatile float batch_min_mag, batch_max_mag; /* last drain, diagnostics */
 static nvs_handle_t steps_nvs;
 static uint32_t active_day;     /* yyyymmdd the current count belongs to */
 static uint32_t last_saved_steps;
@@ -246,21 +266,14 @@ void step_source_external_pacing(bool external)
     external_pacing = external;
 }
 
-void step_source_sample_now(void)
+/* One accel sample through the peak detector. `now` is the sample's own
+   timestamp (reconstructed from FIFO position), not the processing time —
+   cadence gating stays exact however late the batch is drained. */
+static void detect_process(float magnitude, uint32_t now)
 {
-    if (!ready) return;
-    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-    if (now - persist_last_ms >= 30000) {
-        persist_last_ms = now;
-        steps_persist_tick();
-    }
-    uint8_t buffer[6];
-    if (read_registers(0x35, buffer, 6) != ESP_OK) return;
-    int16_t ax = (int16_t)(buffer[0] | (buffer[1] << 8));
-    int16_t ay = (int16_t)(buffer[2] | (buffer[3] << 8));
-    int16_t az = (int16_t)(buffer[4] | (buffer[5] << 8));
-    float magnitude = sqrtf((float)ax * ax + (float)ay * ay + (float)az * az);
-    detect_baseline += 0.05f * (magnitude - detect_baseline);
+    /* EMA gravity baseline; 0.04 at 32ms/sample matches the time constant
+       the thresholds were tuned against (0.05 at 40ms). */
+    detect_baseline += 0.04f * (magnitude - detect_baseline);
     float deviation = magnitude - detect_baseline;
 
     if (detect_entry_run > 0 && now - detect_last_peak_ms > SW_RESET_GAP_MS) {
@@ -287,15 +300,55 @@ void step_source_sample_now(void)
     }
 }
 
+void step_source_drain_now(void)
+{
+    if (!ready) return;
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    if (now - persist_last_ms >= 30000) {
+        persist_last_ms = now;
+        steps_persist_tick();
+    }
+
+    /* Word count lives in COUNT plus STATUS[1:0]; accel-only samples are
+       three words each. */
+    uint8_t count_regs[2];
+    if (read_registers(REG_FIFO_COUNT, count_regs, 2) != ESP_OK) return;
+    uint16_t words = ((uint16_t)(count_regs[1] & 0x03) << 8) | count_regs[0];
+    uint16_t samples = words / 3;
+    if (samples == 0) return;
+    if (samples > FIFO_MAX_SAMPLES) samples = FIFO_MAX_SAMPLES;
+
+    static uint8_t batch[FIFO_MAX_SAMPLES * 6];
+    if (!run_command(COMMAND_REQ_FIFO)) return; /* enter FIFO read mode */
+    esp_err_t read_result = read_registers(REG_FIFO_DATA, batch, samples * 6);
+    write_register(REG_FIFO_CTRL, FIFO_CTRL_CONFIG); /* exit read mode */
+    if (read_result != ESP_OK) return;
+
+    float lo = 1e9f, hi = 0;
+    for (uint16_t i = 0; i < samples; i++) {
+        const uint8_t *b = batch + i * 6;
+        int16_t ax = (int16_t)(b[0] | (b[1] << 8));
+        int16_t ay = (int16_t)(b[2] | (b[3] << 8));
+        int16_t az = (int16_t)(b[4] | (b[5] << 8));
+        float magnitude = sqrtf((float)ax * ax + (float)ay * ay + (float)az * az);
+        if (magnitude < lo) lo = magnitude;
+        if (magnitude > hi) hi = magnitude;
+        detect_process(magnitude,
+                       now - (uint32_t)(samples - 1 - i) * FIFO_SAMPLE_MS);
+    }
+    batch_min_mag = lo;
+    batch_max_mag = hi;
+}
+
 static void step_detect_task(void *arg)
 {
     (void)arg;
     steps_restore();
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(SW_SAMPLE_MS));
-        /* While the light-sleep loop paces sampling (device_sleep.c), the
-           task stands down so samples aren't taken twice per window. */
-        if (!external_pacing) step_source_sample_now();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        /* While the light-sleep loop paces draining (device_sleep.c), the
+           task stands down so the FIFO isn't drained twice per window. */
+        if (!external_pacing) step_source_drain_now();
     }
 }
 
@@ -400,10 +453,16 @@ uint32_t step_source_total(void)
         last_dump_tick = lv_tick_get();
         uint8_t hw_count[3] = {0};
         read_registers(REG_STEP_CNT_LOW, hw_count, 3);
-        printf("qmi-dbg sw_steps=%lu hw_steps=%lu\n",
+        uint8_t fifo_regs[2] = {0};
+        read_registers(REG_FIFO_COUNT, fifo_regs, 2);
+        printf("qmi-dbg sw_steps=%lu hw_steps=%lu fifo_words=%u base=%.0f\n",
                (unsigned long)sw_steps,
                (unsigned long)(((uint32_t)hw_count[2] << 16) |
-                               ((uint32_t)hw_count[1] << 8) | hw_count[0]));
+                               ((uint32_t)hw_count[1] << 8) | hw_count[0]),
+               (unsigned)(((fifo_regs[1] & 0x03) << 8) | fifo_regs[0]),
+               (double)detect_baseline);
+        printf("qmi-dbg batch min=%.0f max=%.0f\n",
+               (double)batch_min_mag, (double)batch_max_mag);
     }
     return sw_steps;
 }

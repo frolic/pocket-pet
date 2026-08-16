@@ -32,12 +32,13 @@
  * can never cut an in-flight SPI flush or I2C transaction, and the awake
  * system stays bit-identical to the verified DFS-only firmware.
  *
- * Loop shape: sleep in ~40ms quanta (the accel sampling period — steps keep
- * counting), read the accelerometer each wake, poll the AXP2101 power key
- * every 4th wake (~160ms latency), and wake instantly on BOOT via GPIO
- * low-level wakeup. Slept time is credited back to the FreeRTOS tick with
- * xTaskCatchUpTicks once a second, then a short awake window lets due tasks
- * (housekeeping, NVS persist, idle/TWDT) run.
+ * Loop shape: sleep in ~1s quanta — the accelerometer keeps sampling into
+ * its on-die FIFO (~4s deep), and each wake drains it in one burst so steps
+ * keep counting with nothing lost (counts land <=1s late, by design). The
+ * AXP2101 power key is polled every wake (~1s wake latency); BOOT wakes
+ * instantly via GPIO low-level wakeup. Slept time is credited back to the
+ * FreeRTOS tick with xTaskCatchUpTicks, then a short awake window lets due
+ * tasks (housekeeping, NVS persist, idle/TWDT) run.
  *
  * Requires CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND=n: with it on, a startup
  * hook arms hardware sleep-sel isolation on every pad and the first sleep
@@ -46,8 +47,8 @@
  */
 
 #define BOOT_BUTTON GPIO_NUM_0
-#define QUANTUM_MS 40
-#define PWR_POLL_QUANTA 4
+#define QUANTUM_MS 1000
+#define PWR_POLL_QUANTA 1
 #define CATCH_UP_MS 1000
 #define AWAKE_WINDOW_MS 10
 #define ENTRY_POLL_MS 500
@@ -219,10 +220,11 @@ static void sleep_task(void *arg)
             stats.slept_ms += (uint32_t)(slept_us / 1000);
             stats.quanta++;
 
-            /* Sample every wake: steps keep counting through the night.
-               Doubles as the I2C quiesce point — it serializes behind any
-               transaction a briefly-scheduled task left in flight. */
-            step_source_sample_now();
+            /* Drain the accel FIFO every wake: steps keep counting through
+               the night. Doubles as the I2C quiesce point — it serializes
+               behind any transaction a briefly-scheduled task left in
+               flight. */
+            step_source_drain_now();
 
             if (gpio_get_level(BOOT_BUTTON) == 0) {
                 wake_display = true;
