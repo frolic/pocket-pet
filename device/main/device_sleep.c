@@ -295,6 +295,11 @@ static void sleep_task(void *arg)
             stats.slept_ms += (uint32_t)(slept_us / 1000);
             stats.quanta++;
 
+            /* Credit slept time FIRST: the drain's sensor handshake uses
+               tick-based waits, and running it against a frozen tick count
+               is the prime suspect for the 2026-08-16 mid-loop IWDTs. */
+            catch_up(&credit_us);
+
             /* Drain the accel FIFO every wake: steps keep counting through
                the night. Doubles as the I2C quiesce point — it serializes
                behind any transaction a briefly-scheduled task left in

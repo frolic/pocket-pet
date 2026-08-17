@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include <math.h>
@@ -65,6 +66,11 @@
 
 static i2c_master_dev_handle_t device;
 static bool ready;
+/* All QMI access serialized: the drain's CTRL9 REQ_FIFO sequence is
+   multi-transaction, and a foreign register read interleaved mid-read-mode
+   jams the FIFO engine (the 2026-08-16 wedge — introduced by the debug
+   heartbeat's own fifo_words read racing the drain). */
+static SemaphoreHandle_t qmi_mutex;
 static int status_code; /* 0 ok; 1 no chip; 2/3 config batch failed */
 
 static esp_err_t write_register(uint8_t reg, uint8_t value)
@@ -129,6 +135,8 @@ static bool probe(uint8_t address)
     return false;
 }
 
+static bool configure_sensor(void);
+
 static bool pedometer_init(void)
 {
     bsp_i2c_init();
@@ -140,7 +148,12 @@ static bool pedometer_init(void)
     uint8_t revision = 0;
     read_registers(0x01, &revision, 1);
     printf("qmi8658: revision=0x%02x\n", revision);
+    qmi_mutex = xSemaphoreCreateMutex();
+    return configure_sensor();
+}
 
+static bool configure_sensor(void)
+{
     write_register(REG_RESET, 0xB0);
     vTaskDelay(pdMS_TO_TICKS(20));
 
@@ -308,11 +321,15 @@ void step_source_drain_now(void)
         persist_last_ms = now;
         steps_persist_tick();
     }
+    if (xSemaphoreTake(qmi_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return;
 
     /* Word count lives in COUNT plus STATUS[1:0]; accel-only samples are
        three words each. */
     uint8_t count_regs[2];
-    if (read_registers(REG_FIFO_COUNT, count_regs, 2) != ESP_OK) return;
+    if (read_registers(REG_FIFO_COUNT, count_regs, 2) != ESP_OK) {
+        xSemaphoreGive(qmi_mutex);
+        return;
+    }
     uint16_t words = ((uint16_t)(count_regs[1] & 0x03) << 8) | count_regs[0];
     uint16_t samples = words / 3;
     if (samples == 0) {
@@ -322,19 +339,26 @@ void step_source_drain_now(void)
         static int empty_run;
         if (++empty_run >= 5) {
             empty_run = 0;
-            write_register(REG_CTRL7, 0x01);
-            write_register(REG_FIFO_CTRL, FIFO_CTRL_CONFIG);
-            printf("qmi8658: fifo re-armed after empty run\n");
+            configure_sensor(); /* full reset + reconfig; re-arm alone
+                                   does not clear a jammed read mode */
+            printf("qmi8658: fifo re-initialized after empty run\n");
         }
+        xSemaphoreGive(qmi_mutex);
         return;
     }
     if (samples > FIFO_MAX_SAMPLES) samples = FIFO_MAX_SAMPLES;
 
     static uint8_t batch[FIFO_MAX_SAMPLES * 6];
-    if (!run_command(COMMAND_REQ_FIFO)) return; /* enter FIFO read mode */
+    if (!run_command(COMMAND_REQ_FIFO)) { /* enter FIFO read mode */
+        xSemaphoreGive(qmi_mutex);
+        return;
+    }
     esp_err_t read_result = read_registers(REG_FIFO_DATA, batch, samples * 6);
     write_register(REG_FIFO_CTRL, FIFO_CTRL_CONFIG); /* exit read mode */
-    if (read_result != ESP_OK) return;
+    if (read_result != ESP_OK) {
+        xSemaphoreGive(qmi_mutex);
+        return;
+    }
 
     float lo = 1e9f, hi = 0;
     for (uint16_t i = 0; i < samples; i++) {
@@ -350,6 +374,7 @@ void step_source_drain_now(void)
     }
     batch_min_mag = lo;
     batch_max_mag = hi;
+    xSemaphoreGive(qmi_mutex);
 }
 
 static void step_detect_task(void *arg)
@@ -464,9 +489,12 @@ uint32_t step_source_total(void)
     if (!device_debug_quiet() && lv_tick_elaps(last_dump_tick) > 2000) {
         last_dump_tick = lv_tick_get();
         uint8_t hw_count[3] = {0};
-        read_registers(REG_STEP_CNT_LOW, hw_count, 3);
         uint8_t fifo_regs[2] = {0};
-        read_registers(REG_FIFO_COUNT, fifo_regs, 2);
+        if (qmi_mutex != NULL && xSemaphoreTake(qmi_mutex, 0) == pdTRUE) {
+            read_registers(REG_STEP_CNT_LOW, hw_count, 3);
+            read_registers(REG_FIFO_COUNT, fifo_regs, 2);
+            xSemaphoreGive(qmi_mutex);
+        }
         printf("qmi-dbg sw_steps=%lu hw_steps=%lu fifo_words=%u base=%.0f\n",
                (unsigned long)sw_steps,
                (unsigned long)(((uint32_t)hw_count[2] << 16) |
