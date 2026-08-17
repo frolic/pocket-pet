@@ -63,8 +63,21 @@ experiment is next, done with landmine-#2/#3 care). The timestamped
 event journal + BOOT/PWR wake split are now flashed; counters were
 reset 08:25 for the next window.
 
+**2026-08-16 evening: the zero-step day explained and fixed.** Panel
+sleep landed (dark drain 3%/h, ~40%/full day incl. faults) but the day
+counted no steps: the fifo_words debug read (added to the heartbeat the
+night before) raced the drain's CTRL9 REQ_FIFO sequence from another
+task and jammed the QMI FIFO engine within ~2min of every boot; ~10
+mid-loop IWDTs (drain handshake against frozen ticks, suspected) kept
+rebooting into fresh jams. Fixed: QMI mutex around all access,
+self-heal does full reset+reconfig, dark loop credits ticks before the
+drain. Soak-verified live; real-gait steps count. Room-walk undercount
+(8/30) is entry-filter + carry-style tuning — next: flight-recorder
+capture of a real walk, tune thresholds against the waveform.
+
 Next firmware session:
-1. Panel sleep-in experiment for the 8%/h dark drain.
+1. Step detector tuning against a recorded real walk (flight recorder).
+2. Journal verdict on whether the tick-reorder killed the IWDTs.
 2. **FIFO step batching** (design agreed with Kevin: accuracy over
    realtime — a >=1s count delay is fine): accel keeps sampling into the
    QMI8658's on-chip FIFO (1.5KB ≈ 256 samples; ~62Hz gives a finer
