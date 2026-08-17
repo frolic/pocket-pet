@@ -66,6 +66,7 @@ static const ble_uuid128_t rx_uuid =
 static uint16_t tx_value_handle;
 static uint16_t connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool tx_subscribed;
+static volatile bool stack_running;
 
 static uint8_t reassembly[REASSEMBLY_MAX];
 static size_t reassembly_length;
@@ -395,9 +396,11 @@ static void host_task(void *arg)
 }
 
 /* Real telemetry while subscribed: the P2 relay forwards these verbatim. */
-bool device_familiar_central_connected(void)
+bool device_familiar_radio_active(void)
 {
-    return connection_handle != BLE_HS_CONN_HANDLE_NONE;
+    /* True from stack start until teardown fully completes — a connected
+       central, advertising, and mid-stop all block light sleep. */
+    return stack_running;
 }
 
 void device_familiar_weather(void)
@@ -544,7 +547,6 @@ static void radio_policy_task(void *arg)
    chip (~once per 32min of dark sleep, measured 2026-08-15) — and burns
    ~23%%/h keeping the RF clock domain powered. Stopped controller = clean
    sleeps and dark drain back to fuel-gauge noise. */
-static bool stack_running;
 
 static void ble_stack_start(void)
 {
@@ -567,12 +569,15 @@ static void ble_stack_start(void)
 static void ble_stack_stop(void)
 {
     if (!stack_running) return;
-    stack_running = false;
     connection_handle = BLE_HS_CONN_HANDLE_NONE;
     tx_subscribed = false;
     if (nimble_port_stop() == 0) {
         nimble_port_deinit(); /* also disables + deinits the controller */
     }
+    /* Cleared LAST: sleep eligibility reads this across tasks, and a light
+       sleep during stack teardown is an IWDT reset (seen 2026-08-15 22:19,
+       the one crash of the first clean night). */
+    stack_running = false;
 }
 
 void device_familiar_init(void)

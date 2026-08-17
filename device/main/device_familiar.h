@@ -15,7 +15,8 @@ void device_familiar_ping(uint32_t count, uint32_t interval_ms);
    (open-meteo.com) and print the reading when the reply lands. */
 void device_familiar_weather(void);
 
-/* True while a central holds the BLE connection. Light sleep must refuse
-   while true: manual esp_light_sleep_start freezes the BLE controller and
-   kills the session. */
-bool device_familiar_central_connected(void);
+/* True while the BLE stack exists at all (advertising, connected, or
+   mid-teardown). Light sleep must refuse while true: manual
+   esp_light_sleep_start under a live-or-stopping controller wedges or
+   IWDT-resets the chip. */
+bool device_familiar_radio_active(void);

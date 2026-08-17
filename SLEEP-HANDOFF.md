@@ -52,9 +52,19 @@ Bench fact: USB serial-JTAG does NOT survive wake-from-light-sleep —
 only a full reset re-enumerates; a dark-sleeping watch is unreachable
 until a PWR power-cycle (10s hold, then press).
 
+**2026-08-16 morning: first clean-ish night decoded.** One IWDT reset
+at 22:19 (sleep raced the BLE stack teardown — fixed: radio_active now
+stays true until nimble deinit completes, and sleep_eligible waits on
+it), then 10h of uninterrupted 1s-quanta sleep at 98% duty. Remaining
+problem: **8%/h drain while dark at 98% duty** — the power goes through
+light sleep, not the CPU. Next suspect by size: the AMOLED rail
+(brightness 0 leaves the CO5300 + boost powered; a SLPIN/SLPOUT
+experiment is next, done with landmine-#2/#3 care). The timestamped
+event journal + BOOT/PWR wake split are now flashed; counters were
+reset 08:25 for the next window.
+
 Next firmware session:
-1. Read the fresh-window overnight dark-drain (counters were reset
-   2026-08-15 ~22:30) — the controller-stop fix's clean baseline.
+1. Panel sleep-in experiment for the 8%/h dark drain.
 2. **FIFO step batching** (design agreed with Kevin: accuracy over
    realtime — a >=1s count delay is fine): accel keeps sampling into the
    QMI8658's on-chip FIFO (1.5KB ≈ 256 samples; ~62Hz gives a finer

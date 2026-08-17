@@ -219,17 +219,17 @@ static void schedule_display_wake(void)
 
 static bool sleep_eligible(void)
 {
-    /* BLE check: manual light sleep freezes the BLE controller, so a live
-       session (central connected) blocks sleep; the BLE-follows-the-screen
-       policy tears the session down shortly after DOZING lands. */
+    /* BLE check: sleep only once the stack (controller included) is fully
+       torn down — the BLE-follows-the-screen policy stops it shortly after
+       DOZING lands, and sleeping any earlier races the teardown. */
 #ifdef FROLIC_SLEEP_ON_VBUS
     /* Bench: sleep even on USB power so the dark loop runs with the
        flasher attached (each WDT reboot re-enumerates USB for capture). */
     return device_state_get() == DEVICE_STATE_DOZING &&
-           !device_familiar_central_connected();
+           !device_familiar_radio_active();
 #else
     return device_state_get() == DEVICE_STATE_DOZING &&
-           !device_familiar_central_connected() &&
+           !device_familiar_radio_active() &&
            !axp2101_vbus_present();
 #endif
 }
@@ -250,7 +250,7 @@ static void sleep_task(void *arg)
             /* While dozing, tally WHY sleep is refused — the counters
                distinguish "loop never engaged" from "engaged, still hot". */
             if (device_state_get() == DEVICE_STATE_DOZING) {
-                if (device_familiar_central_connected()) stats.blocked_radio++;
+                if (device_familiar_radio_active()) stats.blocked_radio++;
                 else if (axp2101_vbus_present()) stats.blocked_vbus++;
             }
             continue;
