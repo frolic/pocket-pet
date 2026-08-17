@@ -299,6 +299,16 @@ static void console_task(void *arg)
             device_familiar_ping(count, interval);
         } else if (strcmp(line, "weather") == 0) {
             device_familiar_weather();
+        } else if (strcmp(line, "pnlsleep") == 0) {
+            /* Eyes test for SLPIN: seal rendering, put the panel to sleep. */
+            device_flush_gate_close();
+            printf("pnlsleep: %s\n",
+                   esp_err_to_name(bsp_display_panel_sleep(true)));
+        } else if (strcmp(line, "pnlwake") == 0) {
+            printf("pnlwake: %s\n",
+                   esp_err_to_name(bsp_display_panel_sleep(false)));
+            device_flush_gate_open();
+            run_in_lvgl(wake_cb);
         } else if (strcmp(line, "sleepstats") == 0) {
             device_sleep_stats_print();
         } else if (strcmp(line, "sleepstats reset") == 0) {

@@ -367,6 +367,24 @@ esp_err_t bsp_display_brightness_set(int brightness_percent)
     return ESP_OK;
 }
 
+/* Panel sleep (SLPIN/SLPOUT): sleep-in shuts the CO5300's oscillator and
+   charge pumps — the panel-rail share of the dark-hours drain — while GRAM
+   holds the frame. Callers must have the flush pipeline sealed and drained
+   (flush gate closed) before sleeping; wake blocks ~150ms for the SLPOUT
+   stabilization time before the panel accepts pixels again. */
+esp_err_t bsp_display_panel_sleep(bool sleep)
+{
+    uint32_t lcd_cmd = sleep ? 0x10 : 0x11;
+    lcd_cmd &= 0xff;
+    lcd_cmd <<= 8;
+    lcd_cmd |= 0x02 << 24;
+    esp_err_t err = esp_lcd_panel_io_tx_param(io_handle, lcd_cmd, NULL, 0);
+    if (!sleep) {
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
+    return err;
+}
+
 int bsp_display_brightness_get(void)
 {
     if (panel_handle == NULL)

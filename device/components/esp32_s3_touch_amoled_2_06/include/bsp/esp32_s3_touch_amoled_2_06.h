@@ -270,6 +270,10 @@ typedef struct {
    console raw* commands). */
 esp_lcd_panel_handle_t bsp_display_get_panel_handle(void);
 
+/* SLPIN/SLPOUT for the dark hours; seal the flush pipeline before sleeping.
+   Waking blocks ~150ms (SLPOUT stabilization). */
+esp_err_t bsp_display_panel_sleep(bool sleep);
+
 lv_display_t *bsp_display_start(void);
 
 /**

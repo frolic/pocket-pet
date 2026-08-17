@@ -266,6 +266,10 @@ static void sleep_task(void *arg)
             continue;
         }
 
+        /* Panel to sleep once the pipeline is sealed and drained: SLPIN
+           stops the CO5300 oscillator + charge pumps for the dark hours. */
+        bsp_display_panel_sleep(true);
+
         /* BOOT wakes the chip out of light sleep instantly. Re-armed every
            entry: gpio_config() elsewhere resets the pin's trigger type. */
         gpio_wakeup_enable(BOOT_BUTTON, GPIO_INTR_LOW_LEVEL);
@@ -351,7 +355,9 @@ static void sleep_task(void *arg)
         printf("device_sleep: dark loop end (%s)\n",
                wake_display ? "button wake" : "state/usb");
 
-        /* Reopen the gate BEFORE the wake frame renders. */
+        /* Panel back first (blocks ~150ms for SLPOUT), then reopen the
+           gate BEFORE the wake frame renders. */
+        bsp_display_panel_sleep(false);
         device_flush_gate_open();
         if (wake_display) schedule_display_wake();
     }
