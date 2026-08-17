@@ -315,7 +315,19 @@ void step_source_drain_now(void)
     if (read_registers(REG_FIFO_COUNT, count_regs, 2) != ESP_OK) return;
     uint16_t words = ((uint16_t)(count_regs[1] & 0x03) << 8) | count_regs[0];
     uint16_t samples = words / 3;
-    if (samples == 0) return;
+    if (samples == 0) {
+        /* A still watch still samples gravity — sustained empty means the
+           FIFO wedged (a failed CTRL9 handshake can strand it in read
+           mode, where capture stops). Re-arm it. */
+        static int empty_run;
+        if (++empty_run >= 5) {
+            empty_run = 0;
+            write_register(REG_CTRL7, 0x01);
+            write_register(REG_FIFO_CTRL, FIFO_CTRL_CONFIG);
+            printf("qmi8658: fifo re-armed after empty run\n");
+        }
+        return;
+    }
     if (samples > FIFO_MAX_SAMPLES) samples = FIFO_MAX_SAMPLES;
 
     static uint8_t batch[FIFO_MAX_SAMPLES * 6];
