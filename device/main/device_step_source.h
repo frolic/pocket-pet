@@ -15,3 +15,7 @@ void step_source_external_pacing(bool external);
    from any task; also serializes behind any in-flight I2C transaction,
    which the sleep loop relies on to quiesce the bus before sleeping. */
 void step_source_drain_now(void);
+
+/* Walk recorder: dump / clear the PSRAM magnitude ring (console). */
+void step_source_walklog_dump(void);
+void step_source_walklog_clear(void);

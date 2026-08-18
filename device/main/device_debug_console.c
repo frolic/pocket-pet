@@ -18,6 +18,7 @@
 #include "device_flush_gate.h"
 #include "device_familiar.h"
 #include "device_sleep.h"
+#include "device_step_source.h"
 #include "display_sleep.h"
 
 /*
@@ -299,6 +300,12 @@ static void console_task(void *arg)
             device_familiar_ping(count, interval);
         } else if (strcmp(line, "weather") == 0) {
             device_familiar_weather();
+        } else if (strcmp(line, "walklog") == 0) {
+            device_debug_set_quiet(true);
+            step_source_walklog_dump();
+            device_debug_set_quiet(false);
+        } else if (strcmp(line, "walkclear") == 0) {
+            step_source_walklog_clear();
         } else if (strcmp(line, "pnlsleep") == 0) {
             /* Eyes test for SLPIN: seal rendering, put the panel to sleep. */
             device_flush_gate_close();

@@ -66,6 +66,15 @@
 
 static i2c_master_dev_handle_t device;
 static bool ready;
+
+/* Walk recorder: every processed sample's magnitude into a PSRAM ring
+   (~70min at 31.25Hz), dumped by the `walklog` console command — the
+   detector can then be replayed and tuned offline against a real walk
+   instead of guessed at. */
+#define WALK_CAPACITY 131072
+static uint16_t *walk_ring;
+static volatile uint32_t walk_count;
+
 /* All QMI access serialized: the drain's CTRL9 REQ_FIFO sequence is
    multi-transaction, and a foreign register read interleaved mid-read-mode
    jams the FIFO engine (the 2026-08-16 wedge — introduced by the debug
@@ -149,6 +158,8 @@ static bool pedometer_init(void)
     read_registers(0x01, &revision, 1);
     printf("qmi8658: revision=0x%02x\n", revision);
     qmi_mutex = xSemaphoreCreateMutex();
+    walk_ring = heap_caps_malloc(WALK_CAPACITY * sizeof(uint16_t),
+                                 MALLOC_CAP_SPIRAM);
     return configure_sensor();
 }
 
@@ -203,15 +214,21 @@ static bool configure_sensor(void)
  * diagnostics should a future silicon revision start working.
  */
 
-/* 4G range: 8192 counts per g. */
-#define SW_PEAK_THRESHOLD 900.0f    /* ~0.11g above baseline */
-#define SW_MIN_STEP_MS 280          /* max cadence ~3.5 steps/s */
+/* 4G range: 8192 counts per g. Tuned 2026-08-17 by offline replay against
+   a recorded pocket walk (walklog): threshold 750 catches the soft-step
+   peaks the 900 cutoff missed, and crossings inside the refractory window
+   are the same step's impact echo — ignored entirely, because treating
+   them as rhythm breaks was the great undercounter (83 of 186 peaks in
+   the recording were echoes at ~160ms, each one resetting the run). */
+#define SW_PEAK_THRESHOLD 750.0f    /* ~0.09g above baseline */
+#define SW_REFRACTORY_MS 300        /* same-step echo window */
 #define SW_MAX_STEP_MS 1000         /* min cadence 1 step/s */
 #define SW_ENTRY_STEPS 4
 #define SW_RESET_GAP_MS 1400
 
 static volatile uint32_t sw_steps;
 static volatile float batch_min_mag, batch_max_mag; /* last drain, diagnostics */
+
 static nvs_handle_t steps_nvs;
 static uint32_t active_day;     /* yyyymmdd the current count belongs to */
 static uint32_t last_saved_steps;
@@ -284,6 +301,11 @@ void step_source_external_pacing(bool external)
    cadence gating stays exact however late the batch is drained. */
 static void detect_process(float magnitude, uint32_t now)
 {
+    if (walk_ring != NULL) {
+        walk_ring[walk_count % WALK_CAPACITY] =
+            (uint16_t)(magnitude > 65535.0f ? 65535.0f : magnitude);
+        walk_count++;
+    }
     /* EMA gravity baseline; 0.04 at 32ms/sample matches the time constant
        the thresholds were tuned against (0.05 at 40ms). */
     detect_baseline += 0.04f * (magnitude - detect_baseline);
@@ -295,7 +317,10 @@ static void detect_process(float magnitude, uint32_t now)
     if (!detect_above && deviation > SW_PEAK_THRESHOLD) {
         detect_above = true;
         uint32_t gap = now - detect_last_peak_ms;
-        if (gap >= SW_MIN_STEP_MS && gap <= SW_MAX_STEP_MS) {
+        if (gap < SW_REFRACTORY_MS) {
+            return; /* same-step echo: no count, no rhythm penalty */
+        }
+        if (gap <= SW_MAX_STEP_MS) {
             if (detect_entry_run < SW_ENTRY_STEPS) {
                 detect_entry_run++;
                 if (detect_entry_run == SW_ENTRY_STEPS) {
@@ -465,6 +490,26 @@ static void flight_recorder_start(void)
     /* Flight recorder retired (it found what it needed to find); its
        internal-RAM task stacks now fund the portal's httpd instead. */
     xTaskCreate(step_detect_task, "stepdet", 3072, NULL, 4, NULL);
+}
+
+void step_source_walklog_dump(void)
+{
+    uint32_t total = walk_count;
+    uint32_t stored = total < WALK_CAPACITY ? total : WALK_CAPACITY;
+    printf("WALKLOG begin total=%lu stored=%lu rate=31.25 steps=%lu\n",
+           (unsigned long)total, (unsigned long)stored,
+           (unsigned long)sw_steps);
+    for (uint32_t i = total - stored; i < total; i++) {
+        printf("%u\n", walk_ring[i % WALK_CAPACITY]);
+        if ((i & 0xFF) == 0) vTaskDelay(1);
+    }
+    printf("WALKLOG end\n");
+}
+
+void step_source_walklog_clear(void)
+{
+    walk_count = 0;
+    printf("walklog: cleared\n");
 }
 
 int step_source_status(void)
