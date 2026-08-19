@@ -75,6 +75,41 @@ static bool ready;
 static uint16_t *walk_ring;
 static volatile uint32_t walk_count;
 
+/* Durable copy: the ring syncs to SPIFFS (~18h at 62B/s in the 5.5MB
+   storage partition) so a recording survives the battery dying — the
+   fate of the first full-day capture. Rotated at 4MB. */
+#define WALK_FILE BSP_SPIFFS_MOUNT_POINT "/walk.bin"
+#define WALK_FILE_ROTATE (4 * 1024 * 1024)
+/* ~2min batches: the file exists to survive power loss, so the sync
+   cadence only bounds how much recording tail a dead battery costs —
+   and each sync stretches one dark-loop wake by flash-write time. */
+#define WALK_SYNC_SAMPLES 4096
+static uint32_t walk_synced;
+
+static void walklog_sync(void)
+{
+    uint32_t count = walk_count;
+    if (count - walk_synced < WALK_SYNC_SAMPLES) return;
+    if (count - walk_synced > WALK_CAPACITY) {
+        walk_synced = count - WALK_CAPACITY; /* ring overwrote the gap */
+    }
+    FILE *file = fopen(WALK_FILE, "ab");
+    if (file == NULL) return;
+    long size = ftell(file);
+    if (size > WALK_FILE_ROTATE) {
+        fclose(file);
+        remove(WALK_FILE);
+        file = fopen(WALK_FILE, "ab");
+        if (file == NULL) return;
+    }
+    while (walk_synced < count) {
+        uint16_t value = walk_ring[walk_synced % WALK_CAPACITY];
+        fwrite(&value, sizeof(value), 1, file);
+        walk_synced++;
+    }
+    fclose(file);
+}
+
 /* All QMI access serialized: the drain's CTRL9 REQ_FIFO sequence is
    multi-transaction, and a foreign register read interleaved mid-read-mode
    jams the FIFO engine (the 2026-08-16 wedge — introduced by the debug
@@ -160,6 +195,9 @@ static bool pedometer_init(void)
     qmi_mutex = xSemaphoreCreateMutex();
     walk_ring = heap_caps_malloc(WALK_CAPACITY * sizeof(uint16_t),
                                  MALLOC_CAP_SPIRAM);
+    if (bsp_spiffs_mount() != ESP_OK) {
+        printf("walklog: spiffs mount failed (file sync disabled)\n");
+    }
     return configure_sensor();
 }
 
@@ -400,6 +438,7 @@ void step_source_drain_now(void)
     batch_min_mag = lo;
     batch_max_mag = hi;
     xSemaphoreGive(qmi_mutex);
+    walklog_sync(); /* outside the sensor mutex: file IO never blocks I2C */
 }
 
 static void step_detect_task(void *arg)
@@ -506,10 +545,34 @@ void step_source_walklog_dump(void)
     printf("WALKLOG end\n");
 }
 
+/* The SPIFFS copy: everything that survived a power loss. */
+void step_source_walkfile_dump(void)
+{
+    FILE *file = fopen(WALK_FILE, "rb");
+    if (file == NULL) {
+        printf("walkfile: none\n");
+        return;
+    }
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    printf("WALKFILE begin samples=%ld rate=31.25\n", size / 2);
+    uint16_t value;
+    uint32_t printed = 0;
+    while (fread(&value, sizeof(value), 1, file) == 1) {
+        printf("%u\n", value);
+        if ((++printed & 0xFF) == 0) vTaskDelay(1);
+    }
+    fclose(file);
+    printf("WALKFILE end\n");
+}
+
 void step_source_walklog_clear(void)
 {
     walk_count = 0;
-    printf("walklog: cleared\n");
+    walk_synced = 0;
+    remove(WALK_FILE);
+    printf("walklog: cleared (ring + file)\n");
 }
 
 int step_source_status(void)

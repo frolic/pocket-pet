@@ -16,6 +16,8 @@ void step_source_external_pacing(bool external);
    which the sleep loop relies on to quiesce the bus before sleeping. */
 void step_source_drain_now(void);
 
-/* Walk recorder: dump / clear the PSRAM magnitude ring (console). */
+/* Walk recorder: dump the PSRAM ring / the SPIFFS survivor copy / clear
+   both (console). */
 void step_source_walklog_dump(void);
+void step_source_walkfile_dump(void);
 void step_source_walklog_clear(void);

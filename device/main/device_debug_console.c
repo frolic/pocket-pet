@@ -304,6 +304,10 @@ static void console_task(void *arg)
             device_debug_set_quiet(true);
             step_source_walklog_dump();
             device_debug_set_quiet(false);
+        } else if (strcmp(line, "walkfile") == 0) {
+            device_debug_set_quiet(true);
+            step_source_walkfile_dump();
+            device_debug_set_quiet(false);
         } else if (strcmp(line, "walkclear") == 0) {
             step_source_walklog_clear();
         } else if (strcmp(line, "pnlsleep") == 0) {
