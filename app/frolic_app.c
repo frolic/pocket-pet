@@ -68,14 +68,34 @@ static void poll_button(lv_timer_t *timer)
     button_was_held = held;
 }
 
+/* PWR while lit: single press sleeps, double press (within the window)
+   boosts to full brightness for the rest of this screen-on session. The
+   sleep therefore waits out the window before landing. */
+#define PWR_DOUBLE_TAP_MS 500
+
+static bool pwr_sleep_pending;
+static uint32_t pwr_first_tap_tick;
+
 static void poll_power_button(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
+    if (pwr_sleep_pending &&
+        lv_tick_elaps(pwr_first_tap_tick) > PWR_DOUBLE_TAP_MS) {
+        pwr_sleep_pending = false;
+        display_sleep_sleep_now();
+        return;
+    }
     if (!power_button_pressed()) return;
     if (display_sleep_is_asleep()) {
         display_sleep_wake();
+        return;
+    }
+    if (pwr_sleep_pending) {
+        pwr_sleep_pending = false;
+        display_sleep_boost(100);
     } else {
-        display_sleep_sleep_now();
+        pwr_sleep_pending = true;
+        pwr_first_tap_tick = lv_tick_get();
     }
 }
 

@@ -120,22 +120,12 @@ static void box_clicked(lv_event_t *event)
     lv_timer_resume(daily_revert_timer);
 }
 
-#define NIGHT_START_HOUR 22
-#define NIGHT_END_HOUR 7
-#define DAY_BRIGHTNESS 30
-#define NIGHT_BRIGHTNESS 15
-
 static void refresh_time(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
     time_t now = time(NULL);
     struct tm local;
     localtime_r(&now, &local);
-    /* Clock-scheduled dimming: gentle on night eyes (and the battery). */
-    bool night = local.tm_hour >= NIGHT_START_HOUR ||
-                 local.tm_hour < NIGHT_END_HOUR;
-    display_sleep_set_awake_brightness(night ? NIGHT_BRIGHTNESS
-                                             : DAY_BRIGHTNESS);
     char text[8];
     /* No redraws under the blanket: invalidations while dark still flush. */
     if (display_sleep_is_asleep()) return;
