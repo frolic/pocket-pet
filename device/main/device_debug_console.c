@@ -305,6 +305,8 @@ static void console_task(void *arg)
             device_debug_set_quiet(true);
             step_source_walklog_dump();
             device_debug_set_quiet(false);
+        } else if (strcmp(line, "pmicrails") == 0) {
+            power_rails_dump();
         } else if (strcmp(line, "pkeywatch") == 0) {
             power_button_watch();
         } else if (strcmp(line, "walkfile") == 0) {

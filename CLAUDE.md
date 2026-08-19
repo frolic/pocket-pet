@@ -35,9 +35,11 @@ honors caller flags) — no bounce alloc, and bench `flushfail=0(+0)`,
 which is the new baseline: ANY nonzero flushfail is a real regression.
 
 ### 2. Never configure or drive GPIO13.
-A community note (Waveshare issue #6) calls it an "AMOLED boost enable."
-On this board, configuring GPIO13 *at all* (drive it, or even set it to
-floating input) latches the panel into corruption. Leave it at power-on
+The schematic (fetched 2026-08-19, in scratchpad history) shows the
+mechanism: **GPIO13 is LCD_TE — the panel's tearing-effect output**, an
+input FROM the CO5300. Configuring it as output (or even re-configuring
+as input) fights or glitches the panel's own driver on that net, which
+is what latched the display into corruption. Leave it at power-on
 default — no `gpio_config` for pin 13 anywhere.
 
 ### 3. The battery keeps the panel powered; unplugging USB does NOT reset it.
@@ -238,6 +240,23 @@ battery. Facts that must not be relearned:
    restarts the device on stall — 10s leash normally, 2min in DOZING
    because manual light sleep slows LVGL to catch-up windows. Don't
    remove the liveness timer or gate it on state.
+
+## Board facts from the schematic (2026-08-19)
+
+- QMI8658 INT1 → **GPIO21** (usable as a light-sleep GPIO wake / FIFO
+  watermark IRQ — unexploited).
+- AXP2101 IRQ → net "EXIO5" (an IO-expander that is NOT on the I2C bus)
+  — effectively unconnected, so PWR-press detection must stay polled.
+- **Vibration motor** on the board: GPIO18 drives it via a transistor,
+  powered from ALDO3. Never used by firmware.
+- Rails: DCDC1=VCC3V3 (main); ALDO1=A3V3 (codec/mic analog),
+  ALDO2=panel DSI_PWR_EN, ALDO3=motor, ALDO4=1.8V, BLDO1=1.2V,
+  BLDO2=2.8V, DCDC2/3/4=0.9/1.2/1.8V with no load found on the sheet.
+  `pmicrails` console command dumps live enables/voltages. Unused rails
+  left on by PMIC defaults are a battery-drain suspect — trim ONLY
+  incrementally with eyes on the glass (panel rails are in the mix).
+- TF card slot: CS=GPIO17, SPI 1/2/3; mics via ES7210 (I2C 0x40 — the
+  previously unidentified scan hit).
 
 ## Still open
 

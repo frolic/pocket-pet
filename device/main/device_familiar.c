@@ -360,6 +360,11 @@ static void start_advertising(void)
     struct ble_gap_adv_params params = {
         .conn_mode = BLE_GAP_CONN_MODE_UND,
         .disc_mode = BLE_GAP_DISC_MODE_GEN,
+        /* ~250-300ms intervals: advertising runs the whole screen-on
+           session, and the fast default (~60ms) buys nothing — the phone's
+           pending connect lands within a beat either way. */
+        .itvl_min = BLE_GAP_ADV_ITVL_MS(244),
+        .itvl_max = BLE_GAP_ADV_ITVL_MS(306),
     };
     struct ble_hs_adv_fields fields = {0};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;

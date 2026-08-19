@@ -75,10 +75,30 @@ drain. Soak-verified live; real-gait steps count. Room-walk undercount
 (8/30) is entry-filter + carry-style tuning — next: flight-recorder
 capture of a real walk, tune thresholds against the waveform.
 
+**2026-08-19 overnight: battery-extension plan (prepared, built, NOT
+flashed — watch was away).** Schematic audit found the levers:
+1. **PMIC rail trim** (likely biggest): boot defaults may leave ALDO1
+   (codec analog — audio never initialized), ALDO3 (motor), ALDO4,
+   BLDO1/2, DCDC2/3/4 enabled with no consumer. Morning: flash, run
+   `pmicrails`, disable confirmed-unused rails one at a time with eyes
+   on the glass (ALDO2 is the PANEL enable — do not touch until last,
+   and only with the full reinit path ready).
+2. **QMI INT1 = GPIO21**: FIFO-watermark interrupt as a GPIO wake lets
+   the dark loop stretch its timer quantum (PWR latency is then the
+   only bound — ask Kevin what latency he accepts; 2s halves the wake
+   budget).
+3. **BLE advertising interval 244-306ms** while lit (was the ~60ms
+   fast default) — implemented, builds clean, needs a reconnect-latency
+   sanity check on flash.
+4. Already prepared: `pmicrails` console dump; boost/gestures all
+   landed earlier tonight.
+
 Next firmware session:
-1. Step detector tuning against a recorded real walk (flight recorder).
-2. Journal verdict on whether the tick-reorder killed the IWDTs.
-3. Swap bring-up telemetry (httpbin.org) and the weather demo to the
+1. Flash the prepared build; run the rail audit + trims (above).
+2. Step detector tuning against a recorded real walk (walklog — the
+   bike commute recording is on SPIFFS if the ride happened).
+3. Journal verdict on whether the tick-reorder killed the IWDTs.
+4. Swap bring-up telemetry (httpbin.org) and the weather demo to the
    real pet API when it exists.
 
 ## Kevin's mandate — the operating rule

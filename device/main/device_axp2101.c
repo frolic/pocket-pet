@@ -160,3 +160,33 @@ void power_button_watch(void)
     }
     printf("pkeywatch: done\n");
 }
+
+/* Rail audit (AXP2101 registers per XPowersLib): which converters/LDOs are
+   enabled and at what setting. The schematic maps DCDC1=VCC3V3(main),
+   ALDO1=A3V3(codec analog), ALDO2=panel DSI_PWR_EN, ALDO3=motor,
+   ALDO4=VL3_1.8V, BLDO1=1.2V, BLDO2=2.8V, DCDC2/3/4=0.9/1.2/1.8V with no
+   visible load — prime disable candidates once verified on the glass. */
+void power_rails_dump(void)
+{
+    if (!ensure_ready()) {
+        printf("pmicrails: pmic not ready\n");
+        return;
+    }
+    static const struct { uint8_t reg; const char *name; } regs[] = {
+        {0x80, "DCDC_EN (b0..4=dcdc1..5)"},
+        {0x90, "LDO_EN0 (b0..7=aldo1-4,bldo1-2,cpusldo,dldo1)"},
+        {0x91, "LDO_EN1 (b0=dldo2)"},
+        {0x82, "DCDC1_V"}, {0x83, "DCDC2_V"}, {0x84, "DCDC3_V"},
+        {0x85, "DCDC4_V"}, {0x86, "DCDC5_V"},
+        {0x92, "ALDO1_V"}, {0x93, "ALDO2_V"}, {0x94, "ALDO3_V"},
+        {0x95, "ALDO4_V"}, {0x96, "BLDO1_V"}, {0x97, "BLDO2_V"},
+        {0x98, "CPUSLDO_V"}, {0x99, "DLDO1_V"}, {0x9A, "DLDO2_V"},
+    };
+    for (size_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+        uint8_t reg = regs[i].reg;
+        uint8_t value = 0;
+        if (i2c_master_transmit_receive(device, &reg, 1, &value, 1, 100) == ESP_OK) {
+            printf("pmicrails: 0x%02X %-40s = 0x%02X\n", reg, regs[i].name, value);
+        }
+    }
+}
