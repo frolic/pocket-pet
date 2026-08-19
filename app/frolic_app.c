@@ -92,7 +92,7 @@ static void poll_power_button(lv_timer_t *timer)
     }
     if (pwr_sleep_pending) {
         pwr_sleep_pending = false;
-        display_sleep_boost(100);
+        display_sleep_boost(80);
     } else {
         pwr_sleep_pending = true;
         pwr_first_tap_tick = lv_tick_get();
@@ -107,5 +107,5 @@ void frolic_app_init(lv_obj_t *parent)
     lv_timer_ready(lv_timer_create(poll_battery, 30000, NULL));
     lv_timer_create(poll_button, 50, NULL);
     lv_timer_create(poll_power_button, 150, NULL);
-    display_sleep_init(10000);
+    display_sleep_init(15000);
 }
