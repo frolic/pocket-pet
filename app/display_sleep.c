@@ -20,7 +20,7 @@ static bool hold;
    gray first, then gray to black. One animation drives both. */
 #define FADE_MS 1400
 #define FADE_GRAY 0x3A3A3E
-#define AWAKE_BRIGHTNESS 80
+#define AWAKE_BRIGHTNESS 60
 
 /* With a hardware dimmer (device), the fade is brightness-only: zero
    flushes, so the SPI queue never floods (full-screen blanket animation

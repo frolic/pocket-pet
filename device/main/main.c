@@ -73,7 +73,7 @@ void app_main(void)
    clean demo never touched it; configuring it (drive OR float) corrupts
    the panel. No gpio_config for pin 13 anywhere. */
     bsp_display_start_with_config(&display_config);
-    bsp_display_brightness_set(80);
+    bsp_display_brightness_set(60);
     bsp_display_lock(0);
     frolic_app_init(lv_screen_active());
     lv_timer_create(lvgl_liveness_tick, 500, NULL);
