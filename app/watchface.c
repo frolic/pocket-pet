@@ -122,8 +122,8 @@ static void box_clicked(lv_event_t *event)
 
 #define NIGHT_START_HOUR 22
 #define NIGHT_END_HOUR 7
-#define DAY_BRIGHTNESS 60
-#define NIGHT_BRIGHTNESS 30
+#define DAY_BRIGHTNESS 30
+#define NIGHT_BRIGHTNESS 15
 
 static void refresh_time(lv_timer_t *timer)
 {

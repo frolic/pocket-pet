@@ -22,7 +22,7 @@ static bool hold;
 #define FADE_GRAY 0x3A3A3E
 /* Awake brightness is a runtime setting: the watchface schedules it by
    clock (dim at night, normal by day). */
-static uint8_t awake_brightness = 60;
+static uint8_t awake_brightness = 30;
 
 void display_sleep_set_awake_brightness(uint8_t percent)
 {
