@@ -19,6 +19,7 @@ static bool hold;
 /* Fade-out: panel brightness ramps down while the blanket cross-fades in,
    gray first, then gray to black. One animation drives both. */
 #define FADE_MS 1400
+#define FADE_QUICK_MS 350 /* explicit sleep (PWR press): snappy response */
 #define FADE_GRAY 0x3A3A3E
 static uint8_t awake_brightness = 30;
 /* Boost (PWR double-tap): full brightness until the screen next sleeps. */
@@ -71,7 +72,7 @@ static void fade_done(lv_anim_t *anim)
     if (state_cb != NULL) state_cb(true);
 }
 
-static void go_to_sleep(void)
+static void go_to_sleep(uint32_t fade_ms)
 {
     asleep = true;
     settling = false;
@@ -84,7 +85,7 @@ static void go_to_sleep(void)
     lv_anim_set_var(&anim, blanket);
     lv_anim_set_exec_cb(&anim, fade_exec);
     lv_anim_set_values(&anim, 0, 510);
-    lv_anim_set_duration(&anim, FADE_MS);
+    lv_anim_set_duration(&anim, fade_ms);
     lv_anim_set_path_cb(&anim, lv_anim_path_ease_in);
     lv_anim_set_completed_cb(&anim, fade_done);
     lv_anim_start(&anim);
@@ -113,12 +114,12 @@ static void watch_tick(lv_timer_t *timer)
     if (pet_is_sleeping()) {
         if (pet_asleep_since_tick == 0) pet_asleep_since_tick = lv_tick_get();
         if (lv_tick_elaps(pet_asleep_since_tick) >= SLEEP_POSE_LINGER_MS) {
-            go_to_sleep();
+            go_to_sleep(FADE_MS);
             return;
         }
     }
     /* He might be mid-interaction; don't stall the screen forever. */
-    if (lv_tick_elaps(settle_started_tick) > SETTLE_CAP_MS) go_to_sleep();
+    if (lv_tick_elaps(settle_started_tick) > SETTLE_CAP_MS) go_to_sleep(FADE_MS);
 }
 
 void display_sleep_init(uint32_t timeout_ms)
@@ -158,7 +159,7 @@ void display_sleep_poke(void)
 
 void display_sleep_sleep_now(void)
 {
-    if (!asleep) go_to_sleep();
+    if (!asleep) go_to_sleep(FADE_QUICK_MS);
 }
 
 static void wake_backlight_cb(lv_timer_t *timer)
