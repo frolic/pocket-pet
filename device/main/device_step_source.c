@@ -80,10 +80,11 @@ static volatile uint32_t walk_count;
    fate of the first full-day capture. Rotated at 4MB. */
 #define WALK_FILE BSP_SPIFFS_MOUNT_POINT "/walk.bin"
 #define WALK_FILE_ROTATE (4 * 1024 * 1024)
-/* ~2min batches: the file exists to survive power loss, so the sync
-   cadence only bounds how much recording tail a dead battery costs —
-   and each sync stretches one dark-loop wake by flash-write time. */
-#define WALK_SYNC_SAMPLES 4096
+/* ~5min batches (~10uA average): the file exists to survive power
+   loss, so the sync cadence only bounds how much recording tail a dead
+   battery costs — and each sync stretches one dark-loop wake by the
+   flash-write time. The 70min PSRAM ring dwarfs the gap. */
+#define WALK_SYNC_SAMPLES 9375
 static uint32_t walk_synced;
 
 static void walklog_sync(void)
