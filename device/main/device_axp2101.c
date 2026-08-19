@@ -45,12 +45,15 @@ static bool init(void)
     uint8_t enable_write[2] = {REG_INTEN2,
                                (uint8_t)(enable | PKEY_SHORT_BIT | PKEY_LONG_BIT)};
     i2c_master_transmit(device, enable_write, 2, 100);
-    /* PONLEVEL (0x27) bits 1:0 = long-press IRQ time; 00 = 1s (the
-       power-off OFFLEVEL bits above them stay untouched). */
+    /* Reg 0x27 (IRQ_OFF_ON_LEVEL_CTRL, per XPowersLib): bits 5:4 IRQLEVEL
+       = long-press IRQ time (0=1s .. 3=2.5s), bits 3:2 OFFLEVEL = hardware
+       power-off hold (untouched), bits 1:0 ONLEVEL = power-on tap time.
+       Long-press IRQ to 1s (the brightness boost), power-on tap to 512ms. */
     uint8_t ponlevel_reg = 0x27;
     uint8_t ponlevel = 0;
     if (i2c_master_transmit_receive(device, &ponlevel_reg, 1, &ponlevel, 1, 100) == ESP_OK) {
-        uint8_t ponlevel_write[2] = {0x27, (uint8_t)(ponlevel & ~0x03)};
+        uint8_t ponlevel_write[2] = {
+            0x27, (uint8_t)((ponlevel & ~0x33) | (0 << 4) | 0x01)};
         i2c_master_transmit(device, ponlevel_write, 2, 100);
     }
     uint8_t clear[2] = {REG_INTSTS2, PKEY_SHORT_BIT | PKEY_LONG_BIT};
