@@ -10,3 +10,6 @@
  */
 bool power_button_pressed(void);
 bool power_button_long_pressed(void);
+
+/* Bench diagnostic (device only): live INTSTS2 watch, 8s. */
+void power_button_watch(void);

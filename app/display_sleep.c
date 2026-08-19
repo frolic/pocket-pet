@@ -19,7 +19,7 @@ static bool hold;
 /* Fade-out: panel brightness ramps down while the blanket cross-fades in,
    gray first, then gray to black. One animation drives both. */
 #define FADE_MS 1400
-#define FADE_QUICK_MS 350 /* explicit sleep (PWR press): snappy response */
+#define FADE_QUICK_MS 700 /* explicit sleep (PWR press): snappy response */
 #define FADE_GRAY 0x3A3A3E
 static uint8_t awake_brightness = 30;
 /* Boost (PWR double-tap): full brightness until the screen next sleeps. */

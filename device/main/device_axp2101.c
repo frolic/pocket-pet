@@ -1,3 +1,4 @@
+#include "esp_timer.h"
 #include <stdio.h>
 #include "driver/i2c_master.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
@@ -44,6 +45,14 @@ static bool init(void)
     uint8_t enable_write[2] = {REG_INTEN2,
                                (uint8_t)(enable | PKEY_SHORT_BIT | PKEY_LONG_BIT)};
     i2c_master_transmit(device, enable_write, 2, 100);
+    /* PONLEVEL (0x27) bits 1:0 = long-press IRQ time; 00 = 1s (the
+       power-off OFFLEVEL bits above them stay untouched). */
+    uint8_t ponlevel_reg = 0x27;
+    uint8_t ponlevel = 0;
+    if (i2c_master_transmit_receive(device, &ponlevel_reg, 1, &ponlevel, 1, 100) == ESP_OK) {
+        uint8_t ponlevel_write[2] = {0x27, (uint8_t)(ponlevel & ~0x03)};
+        i2c_master_transmit(device, ponlevel_write, 2, 100);
+    }
     uint8_t clear[2] = {REG_INTSTS2, PKEY_SHORT_BIT | PKEY_LONG_BIT};
     i2c_master_transmit(device, clear, 2, 100);
     printf("axp2101: power button ready\n");
@@ -121,4 +130,30 @@ bool power_button_long_pressed(void)
         return true;
     }
     return false;
+}
+
+/* Bench diagnostic: watch INTSTS2 raw for 8s (50ms polls), printing and
+   clearing every nonzero latch — maps which bits the physical button
+   actually fires and when. */
+void power_button_watch(void)
+{
+    if (!ensure_ready()) {
+        printf("pkeywatch: pmic not ready\n");
+        return;
+    }
+    printf("pkeywatch: 8s window — press and hold away\n");
+    int64_t start = esp_timer_get_time();
+    while (esp_timer_get_time() - start < 8000000) {
+        uint8_t reg = REG_INTSTS2;
+        uint8_t status = 0;
+        if (i2c_master_transmit_receive(device, &reg, 1, &status, 1, 100) == ESP_OK &&
+            status != 0) {
+            printf("pkeywatch: +%lldms INTSTS2=0x%02X\n",
+                   (long long)((esp_timer_get_time() - start) / 1000), status);
+            uint8_t clear[2] = {REG_INTSTS2, status};
+            i2c_master_transmit(device, clear, 2, 100);
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    printf("pkeywatch: done\n");
 }

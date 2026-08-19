@@ -30,6 +30,8 @@ static void power_clicked(lv_event_t *event)
     power_pressed = true;
 }
 
+void power_button_watch(void) {}
+
 bool power_button_long_pressed(void)
 {
     return false; /* no long-press rail in the sim */
