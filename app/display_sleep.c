@@ -20,7 +20,17 @@ static bool hold;
    gray first, then gray to black. One animation drives both. */
 #define FADE_MS 1400
 #define FADE_GRAY 0x3A3A3E
-#define AWAKE_BRIGHTNESS 60
+/* Awake brightness is a runtime setting: the watchface schedules it by
+   clock (dim at night, normal by day). */
+static uint8_t awake_brightness = 60;
+
+void display_sleep_set_awake_brightness(uint8_t percent)
+{
+    if (percent == awake_brightness) return;
+    awake_brightness = percent;
+    /* Apply immediately when lit; a fade in progress keeps its own ramp. */
+    if (dim_cb != NULL && !display_sleep_is_asleep()) dim_cb(awake_brightness);
+}
 
 /* With a hardware dimmer (device), the fade is brightness-only: zero
    flushes, so the SPI queue never floods (full-screen blanket animation
@@ -30,7 +40,7 @@ static void fade_exec(void *var, int32_t value)
 {
     LV_UNUSED(var);
     if (dim_cb != NULL) {
-        dim_cb((uint8_t)(AWAKE_BRIGHTNESS * (510 - value) / 510));
+        dim_cb((uint8_t)(awake_brightness * (510 - value) / 510));
         return;
     }
     if (value <= 255) {
@@ -150,7 +160,7 @@ void display_sleep_sleep_now(void)
 static void wake_backlight_cb(lv_timer_t *timer)
 {
     LV_UNUSED(timer);
-    if (dim_cb != NULL) dim_cb(AWAKE_BRIGHTNESS);
+    if (dim_cb != NULL) dim_cb(awake_brightness);
 }
 
 void display_sleep_set_hold(bool new_hold)
