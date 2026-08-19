@@ -3,8 +3,10 @@
 #include <stdbool.h>
 
 /*
- * The power button: screen on/off toggle. Returns true once per short
- * press (consume-on-read). Sim: debug-rail PWR button. Device: AXP2101
- * PMIC short-press IRQ (long press stays hardware power-off).
+ * The power button. Short press: screen on/off toggle. Long press (~1.5s,
+ * the PMIC's long-press IRQ — distinct from the 8-10s hardware power-off):
+ * brightness boost. Both consume-on-read. Sim: debug-rail PWR button
+ * (no long press).
  */
 bool power_button_pressed(void);
+bool power_button_long_pressed(void);

@@ -312,14 +312,22 @@ static void sleep_task(void *arg)
                 wake_display = true;
                 break;
             }
-            if (++quantum % PWR_POLL_QUANTA == 0 && power_button_pressed()) {
-                /* Counted separately from BOOT: an overnight pwr_wake with
-                   nobody pressing anything is a phantom latched flag or a
-                   glitched post-sleep I2C read. */
-                stats.pwr_wakes++;
-                journal_note(JOURNAL_WAKE_PWR);
-                wake_display = true;
-                break;
+            if (++quantum % PWR_POLL_QUANTA == 0) {
+                bool long_press = power_button_long_pressed();
+                if (long_press) {
+                    /* Boost applies on the wake render (panel is asleep
+                       here; the value just waits). */
+                    display_sleep_boost(80);
+                }
+                if (long_press || power_button_pressed()) {
+                    /* Counted separately from BOOT: an overnight pwr_wake
+                       with nobody pressing anything is a phantom latched
+                       flag or a glitched post-sleep I2C read. */
+                    stats.pwr_wakes++;
+                    journal_note(JOURNAL_WAKE_PWR);
+                    wake_display = true;
+                    break;
+                }
             }
             if (credit_us >= CATCH_UP_MS * 1000) {
                 /* Credit the slept time to the RTOS tick so wall-clock task

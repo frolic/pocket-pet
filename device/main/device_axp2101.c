@@ -20,6 +20,7 @@
 #define REG_INTSTS2 0x49
 #define REG_BAT_PERCENT 0xA4
 #define PKEY_SHORT_BIT 0x08
+#define PKEY_LONG_BIT 0x04
 
 static i2c_master_dev_handle_t device;
 static bool ready;
@@ -40,9 +41,10 @@ static bool init(void)
     uint8_t reg = REG_INTEN2;
     uint8_t enable = 0;
     i2c_master_transmit_receive(device, &reg, 1, &enable, 1, 100);
-    uint8_t enable_write[2] = {REG_INTEN2, (uint8_t)(enable | PKEY_SHORT_BIT)};
+    uint8_t enable_write[2] = {REG_INTEN2,
+                               (uint8_t)(enable | PKEY_SHORT_BIT | PKEY_LONG_BIT)};
     i2c_master_transmit(device, enable_write, 2, 100);
-    uint8_t clear[2] = {REG_INTSTS2, PKEY_SHORT_BIT};
+    uint8_t clear[2] = {REG_INTSTS2, PKEY_SHORT_BIT | PKEY_LONG_BIT};
     i2c_master_transmit(device, clear, 2, 100);
     printf("axp2101: power button ready\n");
     return true;
@@ -99,6 +101,22 @@ bool power_button_pressed(void)
     }
     if (status & PKEY_SHORT_BIT) {
         uint8_t clear[2] = {REG_INTSTS2, PKEY_SHORT_BIT};
+        i2c_master_transmit(device, clear, 2, 100);
+        return true;
+    }
+    return false;
+}
+
+bool power_button_long_pressed(void)
+{
+    if (!ensure_ready()) return false;
+    uint8_t reg = REG_INTSTS2;
+    uint8_t status = 0;
+    if (i2c_master_transmit_receive(device, &reg, 1, &status, 1, 100) != ESP_OK) {
+        return false;
+    }
+    if (status & PKEY_LONG_BIT) {
+        uint8_t clear[2] = {REG_INTSTS2, PKEY_LONG_BIT};
         i2c_master_transmit(device, clear, 2, 100);
         return true;
     }
