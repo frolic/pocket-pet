@@ -56,20 +56,20 @@ static bool init(void)
             0x27, (uint8_t)((ponlevel & ~0x33) | (0 << 4) | 0x01)};
         i2c_master_transmit(device, ponlevel_write, 2, 100);
     }
-    /* Rail set: written EXPLICITLY every boot — the PMIC persists rail
-       state across resets, and a read-modify-clear approach left the panel
-       rails stuck off after a crash loop (dark unwakeable glass). These are
-       the STOCK power-on values (0x80=0x0F, 0x90=0xFF, 0x91=0x01): the
-       2026-08-20 trim attempt (0x01/0x7B/0x00) produced a black panel with
-       fully working firmware — one of the "no load" rails (DLDO1/2 are not
-       on the schematic's rail list; DCDC2/3/4 were never glass-verified
-       off) feeds the AMOLED. Re-trim only one rail at a time with eyes on
-       the glass. */
-    uint8_t dcdc_write[2] = {0x80, 0x0F};
+    /* Rail set: written EXPLICITLY as absolute values every boot — the PMIC
+       persists rail state across resets, and a read-modify-clear approach
+       left the panel rails stuck off after a crash loop (dark unwakeable
+       glass until a full rail-cut power cycle). ON: DCDC1 (VCC3V3 main),
+       ALDO1 (shared analog: touch + panel VCI + codec — cutting it aborts
+       touch init), ALDO2 (panel enable), ALDO4 (1.8V), BLDO1, BLDO2,
+       CPUSLDO. OFF: DCDC2/3/4, ALDO3 (vibration motor), DLDO1/2 — all
+       no-load per the schematic and glass-verified 2026-08-20 (live toggle
+       with eyes on a lit, rendering panel). */
+    uint8_t dcdc_write[2] = {0x80, 0x01};
     i2c_master_transmit(device, dcdc_write, 2, 100);
-    uint8_t ldo0_write[2] = {0x90, 0xFF};
+    uint8_t ldo0_write[2] = {0x90, 0x7B};
     i2c_master_transmit(device, ldo0_write, 2, 100);
-    uint8_t ldo1_write[2] = {0x91, 0x01};
+    uint8_t ldo1_write[2] = {0x91, 0x00};
     i2c_master_transmit(device, ldo1_write, 2, 100);
     uint8_t clear[2] = {REG_INTSTS2, PKEY_SHORT_BIT | PKEY_LONG_BIT};
     i2c_master_transmit(device, clear, 2, 100);
@@ -174,6 +174,18 @@ void power_button_watch(void)
         vTaskDelay(pdMS_TO_TICKS(50));
     }
     printf("pkeywatch: done\n");
+}
+
+bool axp2101_register_write(uint8_t reg, uint8_t value)
+{
+    if (!ensure_ready()) return false;
+    uint8_t write[2] = {reg, value};
+    if (i2c_master_transmit(device, write, 2, 100) != ESP_OK) return false;
+    uint8_t readback = 0;
+    if (i2c_master_transmit_receive(device, &reg, 1, &readback, 1, 100) != ESP_OK)
+        return false;
+    printf("pmicset: 0x%02X = 0x%02X (readback 0x%02X)\n", reg, value, readback);
+    return true;
 }
 
 void axp2101_power_off(void)

@@ -252,20 +252,22 @@ battery. Facts that must not be relearned:
 - Rails: DCDC1=VCC3V3 (main); ALDO1=A3V3 — the SHARED analog rail
   (touch + panel VCI + codec; cutting it aborts touch init in a crash
   loop, learned 2026-08-20), ALDO2=panel DSI_PWR_EN, ALDO3=motor,
-  ALDO4=1.8V, BLDO1=1.2V, BLDO2=2.8V, DCDC2/3/4=0.9/1.2/1.8V and
-  DLDO1/2 with no load found on the sheet — but the sheet is
-  incomplete: the 2026-08-20 trim of exactly those "no load" rails
-  produced a black panel under fully working firmware, so ONE of them
-  feeds the AMOLED. Stock enables (0x80=0x0F, 0x90=0xFF, 0x91=0x01) are
-  now written explicitly every boot in `device_axp2101.c`. Console:
-  `pmicrails` dumps live enables/voltages; `pmicoff` is a full PMIC
-  power-off (cuts every rail — the software landmine-#3 recovery; wake
-  is a PWR press). Any future trim: ONE rail per flash, eyes on the
-  glass before the next.
+  ALDO4=1.8V, BLDO1=1.2V, BLDO2=2.8V, DCDC2/3/4 and DLDO1/2 no-load.
+  The TRIMMED set (0x80=0x01, 0x90=0x7B, 0x91=0x00 — DCDC2/3/4, ALDO3,
+  DLDO1/2 off) is glass-verified (2026-08-20 live-toggle on a lit,
+  rendering panel + reboot + cold power-on, touch confirmed) and is
+  written explicitly every boot in `device_axp2101.c`. Console:
+  `pmicrails` dumps live enables/voltages; `pmicset REG VAL` pokes a
+  register for bench experiments; `pmicoff` is a full PMIC power-off
+  (cuts every rail — the software landmine-#3 recovery; wake is a PWR
+  press).
 - **PMIC rail state persists across ESP resets and reflashes.** A crash
   loop that dies between "rails off" and "rails on" strands the panel
   dark and unwakeable until something rewrites the enables — which is
   why the boot path writes absolute values, never read-modify-write.
+  Corollary: a black-but-alive panel after rail experiments is usually
+  the LATCH (landmine #3), not a missing rail — `pmicoff` + PWR press
+  before concluding a rail is load-bearing.
 - TF card slot: CS=GPIO17, SPI 1/2/3; mics via ES7210 (I2C 0x40 — the
   previously unidentified scan hit).
 

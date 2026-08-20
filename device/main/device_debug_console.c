@@ -310,6 +310,15 @@ static void console_task(void *arg)
             power_rails_dump();
         } else if (strcmp(line, "pmicoff") == 0) {
             axp2101_power_off();
+        } else if (strncmp(line, "pmicset ", 8) == 0) {
+            unsigned reg = 0, value = 0;
+            if (sscanf(line + 8, "%x %x", &reg, &value) == 2 &&
+                reg <= 0xFF && value <= 0xFF) {
+                if (!axp2101_register_write((uint8_t)reg, (uint8_t)value))
+                    printf("pmicset: write failed\n");
+            } else {
+                printf("usage: pmicset REG VAL (hex)\n");
+            }
         } else if (strcmp(line, "pkeywatch") == 0) {
             power_button_watch();
         } else if (strcmp(line, "walkfile") == 0) {

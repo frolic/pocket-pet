@@ -109,12 +109,20 @@ AMOLED's light supply. Resolution: stock enables (0x80=0x0F, 0x90=0xFF,
 command (PMIC soft power-off = the landmine-#3 cold rail-cycle, driven
 over serial); one `pmicoff` + PWR press brought the panel back,
 eyes-confirmed. SLPIN-failure journaling also landed
-(JOURNAL_PANEL_FAIL). Net battery change from rails: zero — the trim
-must be redone ONE rail per flash with eyes on the glass.
+(JOURNAL_PANEL_FAIL).
+
+**Same evening, the twist: the trim was INNOCENT.** With Kevin at the
+bench, a new `pmicset` command applied the full trim LIVE on a lit
+panel — glass stayed perfect. The black screen had been the latched
+panel (landmine #3) from the crash loop all along; the schematic's
+"no load" reading was correct. The trim (0x80=0x01, 0x90=0x7B,
+0x91=0x00) is now the boot rail set, verified across live toggle,
+warm reboot, and cold power-on, touch included. Battery effect of the
+trim: measure over the next dark cycle against the 3%/h best.
 
 Next firmware session:
-1. Rail trim, properly: one rail off per flash, Kevin watching the
-   glass; DCDC2/3/4 first (still likeliest safe), DLDO1/2 last.
+1. Read the overnight battery numbers with the trim in place
+   (`sleepstats` + journal; was 5.1%/h dark before, 3%/h best).
 2. Step detector tuning against a recorded real walk (walklog — the
    bike commute recording is on SPIFFS if the ride happened).
 3. Journal verdict on whether the tick-reorder killed the IWDTs.
