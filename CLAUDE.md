@@ -247,8 +247,15 @@ battery. Facts that must not be relearned:
   watermark IRQ — unexploited).
 - AXP2101 IRQ → net "EXIO5" (an IO-expander that is NOT on the I2C bus)
   — effectively unconnected, so PWR-press detection must stay polled.
-- **Vibration motor** on the board: GPIO18 drives it via a transistor,
-  powered from ALDO3. Never used by firmware.
+- **Vibration motor: NOT POPULATED** (verified 2026-08-20 — a working
+  haptics driver produced nothing, then the schematic + product specs
+  confirmed why). The board carries only the driver circuit (GPIO18 →
+  4.7K → MMBT3904, supply from ALDO3 through 0R) ending at bare solder
+  pads P1/P2; the wiki/product feature lists show no haptics on this
+  SKU. Firmware haptics only make sense after soldering a ~3V coin ERM
+  motor across P1/P2 — until then don't build them (a 2026-08-20
+  LEDC-PWM pattern player worked correctly into the open circuit and
+  was dropped as dead code).
 - Rails: DCDC1=VCC3V3 (main); ALDO1=A3V3 — the SHARED analog rail
   (touch + panel VCI + codec; cutting it aborts touch init in a crash
   loop, learned 2026-08-20), ALDO2=panel DSI_PWR_EN, ALDO3=motor,
