@@ -56,6 +56,21 @@ static bool init(void)
             0x27, (uint8_t)((ponlevel & ~0x33) | (0 << 4) | 0x01)};
         i2c_master_transmit(device, ponlevel_write, 2, 100);
     }
+    /* Rail set: written EXPLICITLY every boot — the PMIC persists rail
+       state across resets, and a read-modify-clear approach left the panel
+       rails stuck off after a crash loop (dark unwakeable glass). These are
+       the STOCK power-on values (0x80=0x0F, 0x90=0xFF, 0x91=0x01): the
+       2026-08-20 trim attempt (0x01/0x7B/0x00) produced a black panel with
+       fully working firmware — one of the "no load" rails (DLDO1/2 are not
+       on the schematic's rail list; DCDC2/3/4 were never glass-verified
+       off) feeds the AMOLED. Re-trim only one rail at a time with eyes on
+       the glass. */
+    uint8_t dcdc_write[2] = {0x80, 0x0F};
+    i2c_master_transmit(device, dcdc_write, 2, 100);
+    uint8_t ldo0_write[2] = {0x90, 0xFF};
+    i2c_master_transmit(device, ldo0_write, 2, 100);
+    uint8_t ldo1_write[2] = {0x91, 0x01};
+    i2c_master_transmit(device, ldo1_write, 2, 100);
     uint8_t clear[2] = {REG_INTSTS2, PKEY_SHORT_BIT | PKEY_LONG_BIT};
     i2c_master_transmit(device, clear, 2, 100);
     printf("axp2101: power button ready\n");
@@ -159,6 +174,24 @@ void power_button_watch(void)
         vTaskDelay(pdMS_TO_TICKS(50));
     }
     printf("pkeywatch: done\n");
+}
+
+void axp2101_power_off(void)
+{
+    if (!ensure_ready()) {
+        printf("pmicoff: pmic not ready\n");
+        return;
+    }
+    uint8_t reg = 0x10;
+    uint8_t common = 0;
+    if (i2c_master_transmit_receive(device, &reg, 1, &common, 1, 100) != ESP_OK) {
+        printf("pmicoff: read failed\n");
+        return;
+    }
+    printf("pmicoff: cutting all rails — press PWR to boot\n");
+    vTaskDelay(pdMS_TO_TICKS(100)); /* let the printf drain */
+    uint8_t off[2] = {0x10, (uint8_t)(common | 0x01)};
+    i2c_master_transmit(device, off, 2, 100);
 }
 
 /* Rail audit (AXP2101 registers per XPowersLib): which converters/LDOs are

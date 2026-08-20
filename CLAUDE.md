@@ -249,12 +249,23 @@ battery. Facts that must not be relearned:
   — effectively unconnected, so PWR-press detection must stay polled.
 - **Vibration motor** on the board: GPIO18 drives it via a transistor,
   powered from ALDO3. Never used by firmware.
-- Rails: DCDC1=VCC3V3 (main); ALDO1=A3V3 (codec/mic analog),
-  ALDO2=panel DSI_PWR_EN, ALDO3=motor, ALDO4=1.8V, BLDO1=1.2V,
-  BLDO2=2.8V, DCDC2/3/4=0.9/1.2/1.8V with no load found on the sheet.
-  `pmicrails` console command dumps live enables/voltages. Unused rails
-  left on by PMIC defaults are a battery-drain suspect — trim ONLY
-  incrementally with eyes on the glass (panel rails are in the mix).
+- Rails: DCDC1=VCC3V3 (main); ALDO1=A3V3 — the SHARED analog rail
+  (touch + panel VCI + codec; cutting it aborts touch init in a crash
+  loop, learned 2026-08-20), ALDO2=panel DSI_PWR_EN, ALDO3=motor,
+  ALDO4=1.8V, BLDO1=1.2V, BLDO2=2.8V, DCDC2/3/4=0.9/1.2/1.8V and
+  DLDO1/2 with no load found on the sheet — but the sheet is
+  incomplete: the 2026-08-20 trim of exactly those "no load" rails
+  produced a black panel under fully working firmware, so ONE of them
+  feeds the AMOLED. Stock enables (0x80=0x0F, 0x90=0xFF, 0x91=0x01) are
+  now written explicitly every boot in `device_axp2101.c`. Console:
+  `pmicrails` dumps live enables/voltages; `pmicoff` is a full PMIC
+  power-off (cuts every rail — the software landmine-#3 recovery; wake
+  is a PWR press). Any future trim: ONE rail per flash, eyes on the
+  glass before the next.
+- **PMIC rail state persists across ESP resets and reflashes.** A crash
+  loop that dies between "rails off" and "rails on" strands the panel
+  dark and unwakeable until something rewrites the enables — which is
+  why the boot path writes absolute values, never read-modify-write.
 - TF card slot: CS=GPIO17, SPI 1/2/3; mics via ES7210 (I2C 0x40 — the
   previously unidentified scan hit).
 

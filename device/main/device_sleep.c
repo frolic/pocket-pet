@@ -102,6 +102,7 @@ typedef struct {
 #define JOURNAL_WAKE_BOOT 2
 #define JOURNAL_WAKE_PWR 3
 #define JOURNAL_EXIT_STATE 4
+#define JOURNAL_PANEL_FAIL 5
 
 static journal_entry_t journal[JOURNAL_CAPACITY];
 static uint32_t journal_next;
@@ -120,6 +121,7 @@ static const char *journal_name(uint8_t code)
     case JOURNAL_WAKE_BOOT: return "wake-BOOT";
     case JOURNAL_WAKE_PWR: return "wake-PWR";
     case JOURNAL_EXIT_STATE: return "exit-state/usb";
+    case JOURNAL_PANEL_FAIL: return "panel-SLPIN-FAILED";
     }
     if (code >= JOURNAL_BOOT_BASE) {
         switch (code - JOURNAL_BOOT_BASE) {
@@ -267,8 +269,13 @@ static void sleep_task(void *arg)
         }
 
         /* Panel to sleep once the pipeline is sealed and drained: SLPIN
-           stops the CO5300 oscillator + charge pumps for the dark hours. */
-        bsp_display_panel_sleep(true);
+           stops the CO5300 oscillator + charge pumps for the dark hours.
+           A failure here silently costs ~2%%/h for the whole dark session
+           — make it loud and journaled. */
+        if (bsp_display_panel_sleep(true) != ESP_OK) {
+            printf("device_sleep: SLPIN FAILED — panel stays powered\n");
+            journal_note(JOURNAL_PANEL_FAIL);
+        }
 
         /* BOOT wakes the chip out of light sleep instantly. Re-armed every
            entry: gpio_config() elsewhere resets the pin's trigger type. */

@@ -93,8 +93,28 @@ flashed — watch was away).** Schematic audit found the levers:
 4. Already prepared: `pmicrails` console dump; boost/gestures all
    landed earlier tonight.
 
+**2026-08-20 evening: the rail trim FAILED — reverted to stock, glass
+recovered.** Kevin reported faster-than-expected drain (5.1%/h dark vs
+3%/h best); the audit showed every rail enabled, so the trim ran. What
+happened, in order: (1) cutting ALDO1 crash-looped the boot — it is the
+SHARED analog rail (touch + panel VCI + codec), not codec-only; (2) the
+crash loop stranded the PMIC with panel rails off — rail state PERSISTS
+across ESP resets, and the read-modify-clear code never re-enabled them
+→ dark unwakeable watch; (3) even with ALDO1 restored and a
+conservative trim (DCDC2/3/4, ALDO3, DLDO1/2 off), the glass stayed
+black under fully working firmware (BLE weather round trip, wakes
+logged, flushfail=0) — one of the schematic's "no load" rails feeds the
+AMOLED's light supply. Resolution: stock enables (0x80=0x0F, 0x90=0xFF,
+0x91=0x01) written explicitly every boot, plus a new `pmicoff` console
+command (PMIC soft power-off = the landmine-#3 cold rail-cycle, driven
+over serial); one `pmicoff` + PWR press brought the panel back,
+eyes-confirmed. SLPIN-failure journaling also landed
+(JOURNAL_PANEL_FAIL). Net battery change from rails: zero — the trim
+must be redone ONE rail per flash with eyes on the glass.
+
 Next firmware session:
-1. Flash the prepared build; run the rail audit + trims (above).
+1. Rail trim, properly: one rail off per flash, Kevin watching the
+   glass; DCDC2/3/4 first (still likeliest safe), DLDO1/2 last.
 2. Step detector tuning against a recorded real walk (walklog — the
    bike commute recording is on SPIFFS if the ride happened).
 3. Journal verdict on whether the tick-reorder killed the IWDTs.

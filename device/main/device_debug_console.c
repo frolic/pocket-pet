@@ -20,6 +20,7 @@
 #include "device_sleep.h"
 #include "device_step_source.h"
 #include "power_button.h"
+#include "device_axp2101.h"
 #include "display_sleep.h"
 
 /*
@@ -307,6 +308,8 @@ static void console_task(void *arg)
             device_debug_set_quiet(false);
         } else if (strcmp(line, "pmicrails") == 0) {
             power_rails_dump();
+        } else if (strcmp(line, "pmicoff") == 0) {
+            axp2101_power_off();
         } else if (strcmp(line, "pkeywatch") == 0) {
             power_button_watch();
         } else if (strcmp(line, "walkfile") == 0) {
